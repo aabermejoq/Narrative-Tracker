@@ -116,10 +116,12 @@ def render_sidebar(data: dict):
 
         combined = data.get("combined_df", pd.DataFrame())
         if not combined.empty and "date" in combined.columns:
-            valid_dates = combined["date"].dropna()
+            valid_dates = pd.Series(
+                pd.DatetimeIndex(pd.to_datetime(combined["date"], errors="coerce"))
+            ).dropna()
             if not valid_dates.empty:
-                min_d = valid_dates.min().date()
-                max_d = valid_dates.max().date()
+                min_d = pd.Timestamp(valid_dates.min()).date()
+                max_d = pd.Timestamp(valid_dates.max()).date()
                 start_d, end_d = st.date_input(
                     "Rango de fechas",
                     value=(min_d, max_d),
