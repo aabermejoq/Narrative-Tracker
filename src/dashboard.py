@@ -17,17 +17,6 @@ from config import (
     POLITICIAN_NAME, COMPARISON_POLITICIANS, DATA_PROCESSED, DATA_CACHE,
 )
 
-# ─────────────────────────────────────────────────────────────
-#  CONFIGURACIÓN DE PÁGINA
-# ─────────────────────────────────────────────────────────────
-
-st.set_page_config(
-    page_title=f"Narrativas: {POLITICIAN_NAME}",
-    page_icon="🏛️",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
 COLORS = {
     "primary":  "#1a1a2e",
     "accent":   "#16213e",
@@ -37,26 +26,6 @@ COLORS = {
     "blue":     "#3498db",
     "purple":   "#9b59b6",
 }
-
-st.markdown("""
-<style>
-    .main-header {
-        font-size: 2.2rem; font-weight: 800;
-        background: linear-gradient(90deg, #1a1a2e, #3498db);
-        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-        margin-bottom: 0.2rem;
-    }
-    .sub-header { color: #666; font-size: 0.95rem; margin-bottom: 1.5rem; }
-    .kpi-card {
-        background: linear-gradient(135deg, #1a1a2e, #16213e);
-        border-radius: 12px; padding: 1.2rem 1.5rem;
-        border-left: 4px solid #3498db; color: white;
-    }
-    .kpi-value { font-size: 2.2rem; font-weight: 800; color: #3498db; }
-    .kpi-label { font-size: 0.85rem; color: #aaa; }
-    .section-header { font-size: 1.4rem; font-weight: 700; margin-top: 2rem; margin-bottom: 0.5rem; }
-</style>
-""", unsafe_allow_html=True)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -614,6 +583,31 @@ def render_instagram(data: dict):
 # ─────────────────────────────────────────────────────────────
 
 def main():
+    st.set_page_config(
+        page_title=f"Narrativas: {POLITICIAN_NAME}",
+        page_icon="🏛️",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
+    st.markdown("""
+<style>
+    .main-header {
+        font-size: 2.2rem; font-weight: 800;
+        background: linear-gradient(90deg, #1a1a2e, #3498db);
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        margin-bottom: 0.2rem;
+    }
+    .sub-header { color: #666; font-size: 0.95rem; margin-bottom: 1.5rem; }
+    .kpi-card {
+        background: linear-gradient(135deg, #1a1a2e, #16213e);
+        border-radius: 12px; padding: 1.2rem 1.5rem;
+        border-left: 4px solid #3498db; color: white;
+    }
+    .kpi-value { font-size: 2.2rem; font-weight: 800; color: #3498db; }
+    .kpi-label { font-size: 0.85rem; color: #aaa; }
+    .section-header { font-size: 1.4rem; font-weight: 700; margin-top: 2rem; margin-bottom: 0.5rem; }
+</style>
+""", unsafe_allow_html=True)
     st.markdown(f'<div class="main-header">🏛️ {POLITICIAN_NAME} — Dashboard de Narrativas</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header">Análisis político en tiempo real · Quintana Roo, México</div>', unsafe_allow_html=True)
 
