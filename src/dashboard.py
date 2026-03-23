@@ -35,15 +35,26 @@ C = {
     "muted":     "#8b949e",
 }
 
+# Only keys that never conflict with per-chart overrides.
+# xaxis/yaxis are applied separately via _theme() to avoid
+# "multiple values for keyword argument" TypeError.
 PLOTLY_THEME = dict(
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor="rgba(22,27,34,0.6)",
     font=dict(color=C["text"], family="Inter, Arial, sans-serif", size=12),
-    xaxis=dict(gridcolor=C["border"], zeroline=False, linecolor=C["border"]),
-    yaxis=dict(gridcolor=C["border"], zeroline=False, linecolor=C["border"]),
     legend=dict(bgcolor="rgba(0,0,0,0.4)", bordercolor=C["border"], borderwidth=1),
     margin=dict(t=48, b=32, l=48, r=24),
 )
+
+_AXIS = dict(gridcolor=C["border"], zeroline=False, linecolor=C["border"])
+
+
+def _theme(fig: go.Figure, height: int = 320, **extra_layout) -> go.Figure:
+    """Apply the shared theme and axis style to any figure."""
+    fig.update_layout(height=height, **PLOTLY_THEME, **extra_layout)
+    fig.update_xaxes(**_AXIS)
+    fig.update_yaxes(**_AXIS)
+    return fig
 
 CSS = """
 <style>
@@ -114,11 +125,6 @@ def load_all_data():
 # ─────────────────────────────────────────────────────────────
 #  CHART HELPERS
 # ─────────────────────────────────────────────────────────────
-
-def _apply_theme(fig: go.Figure, height: int = 320) -> go.Figure:
-    fig.update_layout(height=height, **PLOTLY_THEME)
-    return fig
-
 
 def make_gauge(value: float, title: str, color: str = "#58a6ff") -> go.Figure:
     fig = go.Figure(go.Indicator(
@@ -314,13 +320,11 @@ def render_overview(data: dict):
             fillcolor="rgba(88,166,255,0.08)",
             hovertemplate="%{x|%b %d}<br>Index: %{y:.1f}<extra></extra>",
         ))
-        fig.update_layout(
+        _theme(fig, height=300,
             title=dict(text="Composite Popularity Index — Weekly", font=dict(size=13, color=C["muted"])),
             xaxis_title="Date",
             yaxis_title="Index (0–100)",
-            yaxis=dict(range=[0, 100]),
-            **PLOTLY_THEME,
-            height=300,
+            yaxis=dict(range=[0, 100], gridcolor=C["border"], zeroline=False),
         )
         st.plotly_chart(fig, use_container_width=True)
 
@@ -342,7 +346,7 @@ def render_overview(data: dict):
             barmode="group",
             labels={"source": "Source", "count": "Mentions", "sentiment_label": "Sentiment"},
         )
-        fig2.update_layout(**PLOTLY_THEME, height=290)
+        _theme(fig2, height=290)
         st.plotly_chart(fig2, use_container_width=True)
 
 
@@ -390,7 +394,7 @@ def render_sentiment(data: dict):
                 title="Sentiment Volume — Weekly Trend",
                 labels={"week": "Week", "count": "Mentions", "sentiment_label": "Sentiment"},
             )
-            fig.update_layout(**PLOTLY_THEME, height=300)
+            _theme(fig, height=300)
             st.plotly_chart(fig, use_container_width=True)
 
     # Score distribution
@@ -407,7 +411,7 @@ def render_sentiment(data: dict):
             labels={"sentiment_score": "Score", "sentiment_label": "Class"},
             opacity=0.85,
         )
-        fig2.update_layout(**PLOTLY_THEME, height=270)
+        _theme(fig2, height=270)
         st.plotly_chart(fig2, use_container_width=True)
 
 
@@ -473,7 +477,7 @@ def render_narratives(data: dict):
             labels={"label": "Narrative", "count": "Mentions"},
         )
         fig.update_coloraxes(showscale=False)
-        fig.update_layout(**PLOTLY_THEME, height=290)
+        _theme(fig, height=290)
         st.plotly_chart(fig, use_container_width=True)
 
     # 2D embedding scatter
@@ -488,7 +492,7 @@ def render_narratives(data: dict):
             size_max=6,
         )
         fig_scatter.update_traces(marker=dict(size=4))
-        fig_scatter.update_layout(**PLOTLY_THEME, height=400)
+        _theme(fig_scatter, height=400)
         st.plotly_chart(fig_scatter, use_container_width=True)
 
 
@@ -523,11 +527,7 @@ def render_youtube(data: dict):
             color_continuous_scale="Blues",
             labels={"views": "Views", "title": "", "likes": "Likes"},
         )
-        fig.update_layout(
-            **PLOTLY_THEME,
-            height=400,
-            yaxis={"categoryorder": "total ascending"},
-        )
+        _theme(fig, height=400, yaxis={"categoryorder": "total ascending", "gridcolor": C["border"]})
         fig.update_coloraxes(showscale=False)
         st.plotly_chart(fig, use_container_width=True)
 
@@ -547,7 +547,7 @@ def render_youtube(data: dict):
             labels={"views": "Views", "likes": "Likes", "engagement_rate": "Eng. Rate (%)"},
             opacity=0.85,
         )
-        fig2.update_layout(**PLOTLY_THEME, height=340)
+        _theme(fig2, height=340)
         st.plotly_chart(fig2, use_container_width=True)
 
     with st.expander("Full Video Table"):
@@ -584,12 +584,10 @@ def render_trends(data: dict):
                 hovertemplate=f"{kw}<br>%{{x|%b %d}}: %{{y:.0f}}<extra></extra>",
             ))
 
-    fig.update_layout(
+    _theme(fig, height=380,
         title=dict(text=f"Search Interest: {POLITICIAN_NAME} vs. Comparable Figures", font=dict(size=13, color=C["muted"])),
         xaxis_title="Date",
         yaxis_title="Relative Interest (0–100)",
-        **PLOTLY_THEME,
-        height=380,
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -647,7 +645,7 @@ def render_news(data: dict):
             weekly_news = news_copy.groupby("week").size().reset_index(name="count")
             fig = px.bar(weekly_news, x="week", y="count", title="Media Coverage — Weekly Volume")
 
-        fig.update_layout(**PLOTLY_THEME, height=300)
+        _theme(fig, height=300)
         st.plotly_chart(fig, use_container_width=True)
 
     if "source" in news.columns:
@@ -741,7 +739,7 @@ def render_instagram(data: dict):
             labels={"week": "Week", "count": "Comments"},
         )
         fig2.update_traces(line_color=C["purple"], marker=dict(size=5))
-        fig2.update_layout(**PLOTLY_THEME, height=270)
+        _theme(fig2, height=270)
         st.plotly_chart(fig2, use_container_width=True)
 
     if "topic" in ig_data.columns:
@@ -759,7 +757,7 @@ def render_instagram(data: dict):
             labels={"label": "Topic", "count": "Mentions"},
         )
         fig3.update_coloraxes(showscale=False)
-        fig3.update_layout(**PLOTLY_THEME, height=270)
+        _theme(fig3, height=270)
         st.plotly_chart(fig3, use_container_width=True)
 
     with st.expander("Raw Comment Sample"):
