@@ -13,6 +13,8 @@ bertopic>=0.16.0
 streamlit>=1.30.0
 plotly>=5.18.0
 
+python-dotenv>=1.0.0
+
 # ─── Fuentes de datos ───────────────────────────────────
 google-api-python-client>=2.100.0
 pytrends>=4.9.2
