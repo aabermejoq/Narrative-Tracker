@@ -415,7 +415,7 @@ def compute_popularity_index(
     """
     # Sentimiento semanal
     if "date" in sentiment_df.columns and not sentiment_df["date"].isna().all():
-        sentiment_df["week"] = pd.to_datetime(sentiment_df["date"]).dt.to_period("W").dt.to_timestamp()
+        sentiment_df["week"] = pd.to_datetime(sentiment_df["date"], errors="coerce").dt.to_period("W").dt.to_timestamp()
         weekly_sentiment = (
             sentiment_df.groupby("week")["sentiment_value"]
             .mean()
@@ -434,7 +434,7 @@ def compute_popularity_index(
     # Google Trends (normalizado 0-100)
     if politician in trends_data:
         trends_df = trends_data[politician].copy()
-        trends_df["week"] = pd.to_datetime(trends_df["date"]).dt.to_period("W").dt.to_timestamp()
+        trends_df["week"] = pd.to_datetime(trends_df["date"], errors="coerce").dt.to_period("W").dt.to_timestamp()
         trends_weekly = trends_df.groupby("week")["interest"].mean().reset_index()
         weekly = weekly.merge(trends_weekly, on="week", how="outer")
     else:
@@ -443,7 +443,7 @@ def compute_popularity_index(
     # Noticias por semana
     if not news_df.empty and "published_at" in news_df.columns:
         news_df = news_df.copy()
-        news_df["week"] = pd.to_datetime(news_df["published_at"]).dt.to_period("W").dt.to_timestamp()
+        news_df["week"] = pd.to_datetime(news_df["published_at"], errors="coerce").dt.to_period("W").dt.to_timestamp()
         news_weekly = news_df.groupby("week").size().reset_index(name="news_count")
         weekly = weekly.merge(news_weekly, on="week", how="outer")
     else:
