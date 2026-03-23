@@ -127,7 +127,7 @@ def fetch_youtube_videos(query: str = POLITICIAN_NAME) -> pd.DataFrame:
             })
 
         df = pd.DataFrame(rows)
-        df["published_at"] = pd.to_datetime(df["published_at"])
+        df["published_at"] = pd.to_datetime(df["published_at"], errors="coerce")
         _save_cache(cache_name, df.to_dict("records"))
         logger.info(f"YouTube: {len(df)} videos obtenidos")
         return df
@@ -177,7 +177,7 @@ def fetch_youtube_comments(video_ids: list, max_per_video: int = YOUTUBE_MAX_COM
 
         df = pd.DataFrame(all_comments)
         if not df.empty:
-            df["date"] = pd.to_datetime(df["date"])
+            df["date"] = pd.to_datetime(df["date"], errors="coerce")
         _save_cache(cache_name, df.to_dict("records"))
         logger.info(f"YouTube: {len(df)} comentarios obtenidos")
         return df
