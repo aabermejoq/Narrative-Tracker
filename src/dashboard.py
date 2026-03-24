@@ -219,6 +219,9 @@ def _periodo_delta(
     if df.empty:
         return None, None
     fechas = pd.to_datetime(df[date_col], errors="coerce")
+    # Eliminar timezone para comparación uniforme
+    if hasattr(fechas, "dt") and fechas.dt.tz is not None:
+        fechas = fechas.dt.tz_convert("UTC").dt.tz_localize(None)
     now = pd.Timestamp.now()
     reciente = df[fechas >= now - pd.Timedelta(days=days)]
     anterior = df[(fechas >= now - pd.Timedelta(days=days * 2)) &
