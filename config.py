@@ -36,7 +36,8 @@ for p in [DATA_RAW, DATA_PROCESSED, DATA_CACHE]:
 #  API KEYS  ← PON TUS CLAVES AQUÍ
 # ─────────────────────────────────────────────
 YOUTUBE_API_KEY = _get_secret("YOUTUBE_API_KEY", "TU_YOUTUBE_API_KEY_AQUI")
-NEWS_API_KEY    = _get_secret("NEWS_API_KEY",    "TU_NEWS_API_KEY_AQUI")
+NEWS_API_KEY    = _get_secret("NEWS_API_KEY",    "TU_NEWS_API_KEY_AQUI")   # legacy, ya no se usa
+GNEWS_API_KEY   = _get_secret("GNEWS_API_KEY",   "TU_GNEWS_API_KEY_AQUI")  # https://gnews.io — gratis en producción
 
 # ─────────────────────────────────────────────
 #  PARÁMETROS DE BÚSQUEDA

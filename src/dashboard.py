@@ -303,18 +303,19 @@ def render_sidebar(data: dict):
             st.rerun()
 
         st.divider()
-        from config import YOUTUBE_API_KEY, NEWS_API_KEY, EXCEL_DATA
-        yt_ok   = YOUTUBE_API_KEY != "TU_YOUTUBE_API_KEY_AQUI"
-        news_ok = NEWS_API_KEY    != "TU_NEWS_API_KEY_AQUI"
+        from config import YOUTUBE_API_KEY, GNEWS_API_KEY, EXCEL_DATA
+        yt_ok    = YOUTUBE_API_KEY != "TU_YOUTUBE_API_KEY_AQUI"
+        gnews_ok = GNEWS_API_KEY   != "TU_GNEWS_API_KEY_AQUI"
         excel_ok = EXCEL_DATA.exists()
+        news_src = "GNews" if gnews_ok else "RSS MX"
         st.markdown(
             f"""<div class="status-row">
                 YouTube API&nbsp;&nbsp;<span class="{'status-ok' if yt_ok else 'status-warn'}">
                     {'Conectado' if yt_ok else 'Demo'}</span><br>
-                NewsAPI&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="{'status-ok' if news_ok else 'status-warn'}">
-                    {'Conectado' if news_ok else 'Demo'}</span><br>
+                Noticias&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="{'status-ok' if gnews_ok else 'status-warn'}">
+                    {news_src}</span><br>
                 Instagram&nbsp;&nbsp;&nbsp;&nbsp;<span class="{'status-ok' if excel_ok else 'status-warn'}">
-                    {'Excel' if excel_ok else 'CSV demo'}</span><br>
+                    {'Excel' if excel_ok else 'Demo'}</span><br>
                 Google Trends&nbsp;<span class="{'status-ok' if excel_ok else 'status-warn'}">
                     {'Excel' if excel_ok else 'pytrends'}</span>
             </div>""",

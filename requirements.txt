@@ -18,8 +18,8 @@ python-dotenv>=1.0.0
 # ─── Fuentes de datos ───────────────────────────────────
 google-api-python-client>=2.100.0
 pytrends>=4.9.2
-newsapi-python>=0.2.7
 requests>=2.31.0
+feedparser>=6.0.10          # RSS feeds de medios mexicanos (sin API key)
 
 # ─── Utilidades NLP ──────────────────────────────────────
 # umap-learn>=0.5.5         # Reducción de dimensiones (opcional, mejora visualización)

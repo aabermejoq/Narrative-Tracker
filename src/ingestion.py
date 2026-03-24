@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import (
-    YOUTUBE_API_KEY, NEWS_API_KEY, POLITICIAN_NAME,
+    YOUTUBE_API_KEY, NEWS_API_KEY, GNEWS_API_KEY, POLITICIAN_NAME,
     POLITICIAN_QUERY_VARIANTS, COMPARISON_POLITICIANS,
     REGION, TRENDS_START, YOUTUBE_MAX_RESULTS, YOUTUBE_MAX_COMMENTS,
     NEWS_LOOKBACK_DAYS, DATA_RAW, DATA_CACHE, CACHE_TTL_HOURS,
@@ -240,75 +240,133 @@ def fetch_google_trends(keywords: list = None) -> dict:
 # ─────────────────────────────────────────────────────────────
 
 def fetch_news(query: str = POLITICIAN_NAME) -> pd.DataFrame:
-    """Obtiene noticias desde NewsAPI."""
+    """
+    Obtiene noticias sobre el político.
+    Prioridad: GNews (funciona en producción) → RSS feeds MX → datos de muestra.
+    """
     cache_name = f"news_{query.replace(' ', '_')}"
     cached = _load_cache(cache_name)
     if cached:
         return pd.DataFrame(cached)
 
-    if NEWS_API_KEY == "TU_NEWS_API_KEY_AQUI":
-        logger.warning("NewsAPI key no configurada. Usando datos de ejemplo.")
-        return _news_sample_data()
+    # 1️⃣  GNews — funciona en Streamlit Cloud, plan gratis: 100 req/día
+    if GNEWS_API_KEY != "TU_GNEWS_API_KEY_AQUI":
+        df = _fetch_gnews(query)
+        if not df.empty:
+            _save_cache(cache_name, df.to_dict("records"))
+            return df
 
+    # 2️⃣  RSS feeds de medios mexicanos — sin clave, sin límites
+    df_rss = _fetch_rss_mx(query)
+    if not df_rss.empty:
+        _save_cache(cache_name, df_rss.to_dict("records"))
+        return df_rss
+
+    logger.warning("Ninguna fuente de noticias disponible. Usando datos de ejemplo.")
+    return _news_sample_data()
+
+
+def _fetch_gnews(query: str) -> pd.DataFrame:
+    """GNews API — gratis en producción, 10 artículos/req, 100 req/día."""
     try:
-        from_date = (datetime.now() - timedelta(days=NEWS_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
-        url = "https://newsapi.org/v2/everything"
+        url = "https://gnews.io/api/v4/search"
         params = {
-            "q": query,
-            "from": from_date,
-            "sortBy": "publishedAt",
-            "language": "es",
-            "pageSize": 100,
-            "apiKey": NEWS_API_KEY,
+            "q":        query,
+            "lang":     "es",
+            "country":  "mx",
+            "max":      10,
+            "sortby":   "publishedAt",
+            "apikey":   GNEWS_API_KEY,
         }
         resp = requests.get(url, params=params, timeout=15)
+        data = resp.json()
 
-        # Capturar el mensaje real de la API antes de raise_for_status
-        api_json = {}
-        try:
-            api_json = resp.json()
-        except Exception:
-            pass
+        if resp.status_code != 200 or "articles" not in data:
+            msg = data.get("errors", [str(resp.status_code)])
+            logger.error(f"GNews error: {msg}")
+            return pd.DataFrame()
 
-        if resp.status_code != 200 or api_json.get("status") == "error":
-            api_code = api_json.get("code", "")
-            api_msg  = api_json.get("message", resp.text[:300])
-            hint = ""
-            if api_code in ("developerBlockedRequest", "corsNotAllowed"):
-                hint = " — El plan gratuito de NewsAPI solo funciona en localhost, no en servidores en producción (Streamlit Cloud). Necesitas el plan paid."
-            err = f"NewsAPI {resp.status_code} [{api_code}]: {api_msg}{hint}"
-            logger.error(err)
-            # Devolver DataFrame vacío con el error embebido para mostrarlo en la UI
-            return pd.DataFrame([{"_api_error": err}])
-
-        resp.raise_for_status()
-
-        articles = api_json.get("articles", [])
         rows = []
-        for a in articles:
+        for a in data["articles"]:
             rows.append({
-                "title": a.get("title", ""),
-                "description": a.get("description", ""),
-                "content": (a.get("content") or "")[:800],
-                "source": a.get("source", {}).get("name", ""),
-                "url": a.get("url", ""),
+                "title":        a.get("title", ""),
+                "description":  a.get("description", ""),
+                "content":      (a.get("content") or "")[:800],
+                "source":       a.get("source", {}).get("name", ""),
+                "url":          a.get("url", ""),
                 "published_at": a.get("publishedAt", ""),
             })
 
         if not rows:
-            logger.warning("NewsAPI devolvió 0 artículos para la query.")
             return pd.DataFrame()
 
         df = pd.DataFrame(rows)
         df["published_at"] = pd.to_datetime(df["published_at"], utc=True).dt.tz_localize(None)
         df["text"] = df["title"].fillna("") + " " + df["description"].fillna("")
-        _save_cache(cache_name, df.to_dict("records"))
-        logger.info(f"NewsAPI: {len(df)} noticias obtenidas")
+        logger.info(f"GNews: {len(df)} artículos obtenidos")
         return df
 
     except Exception as e:
-        logger.error(f"Error inesperado NewsAPI: {e}")
-        return pd.DataFrame([{"_api_error": str(e)}])
+        logger.error(f"Error GNews: {e}")
+        return pd.DataFrame()
+
+
+# RSS de medios mexicanos relevantes para política en Quintana Roo
+_RSS_FEEDS_MX = [
+    "https://www.novedadesqroo.com.mx/feed/",
+    "https://www.poresto.net/feed/",
+    "https://laverdadnoticias.com/feed/",
+    "https://sipse.com/feed/",
+    "https://www.eluniversal.com.mx/rss.xml",
+    "https://www.jornada.com.mx/rss/edicion.xml",
+    "https://www.proceso.com.mx/rss/",
+]
+
+
+def _fetch_rss_mx(query: str) -> pd.DataFrame:
+    """
+    Descarga y filtra RSS feeds de medios mexicanos.
+    No requiere API key ni tiene límites de producción.
+    """
+    try:
+        import feedparser
+    except ImportError:
+        logger.warning("feedparser no instalado. Instala con: pip install feedparser")
+        return pd.DataFrame()
+
+    query_lower = query.lower()
+    rows = []
+
+    for feed_url in _RSS_FEEDS_MX:
+        try:
+            feed = feedparser.parse(feed_url)
+            for entry in feed.entries[:30]:
+                title = entry.get("title", "")
+                summary = entry.get("summary", "")
+                combined_text = (title + " " + summary).lower()
+                # Solo artículos que mencionan al político o términos clave
+                if not any(term in combined_text for term in query_lower.split()):
+                    continue
+                rows.append({
+                    "title":        title,
+                    "description":  summary[:400],
+                    "content":      summary[:800],
+                    "source":       feed.feed.get("title", feed_url),
+                    "url":          entry.get("link", ""),
+                    "published_at": entry.get("published", ""),
+                })
+        except Exception as e:
+            logger.warning(f"RSS {feed_url}: {e}")
+            continue
+
+    if not rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows)
+    df["published_at"] = pd.to_datetime(df["published_at"], errors="coerce", utc=True).dt.tz_localize(None)
+    df["text"] = df["title"].fillna("") + " " + df["description"].fillna("")
+    logger.info(f"RSS MX: {len(df)} artículos obtenidos")
+    return df
 
 
 # ─────────────────────────────────────────────────────────────
