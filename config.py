@@ -47,7 +47,11 @@ POLITICIAN_QUERY_VARIANTS = [
     "Gino Segura",
     "Gino Segura Quintana Roo",
     "Gino Segura político",
+    "Eugenio Segura",
+    "Eugenio Segura Quintana Roo",
 ]
+# Todos los términos que identifican al político (para filtros de RSS, etc.)
+POLITICIAN_ALIASES = ["Gino Segura", "Eugenio Segura"]
 
 COMPARISON_POLITICIANS = ["Mara Lezama", "Claudia Sheinbaum"]
 

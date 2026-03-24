@@ -19,7 +19,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import (
     YOUTUBE_API_KEY, NEWS_API_KEY, GNEWS_API_KEY, POLITICIAN_NAME,
-    POLITICIAN_QUERY_VARIANTS, COMPARISON_POLITICIANS,
+    POLITICIAN_QUERY_VARIANTS, POLITICIAN_ALIASES, COMPARISON_POLITICIANS,
     REGION, TRENDS_START, YOUTUBE_MAX_RESULTS, YOUTUBE_MAX_COMMENTS,
     NEWS_LOOKBACK_DAYS, DATA_RAW, DATA_CACHE, CACHE_TTL_HOURS,
     INSTAGRAM_CSV, EXCEL_DATA,
@@ -241,23 +241,29 @@ def fetch_google_trends(keywords: list = None) -> dict:
 
 def fetch_news(query: str = POLITICIAN_NAME) -> pd.DataFrame:
     """
-    Obtiene noticias sobre el político.
+    Obtiene noticias sobre el político buscando por todos sus aliases.
     Prioridad: GNews (funciona en producción) → RSS feeds MX → datos de muestra.
     """
-    cache_name = f"news_{query.replace(' ', '_')}"
+    cache_name = "news_all_aliases"
     cached = _load_cache(cache_name)
     if cached:
         return pd.DataFrame(cached)
 
+    frames = []
+
     # 1️⃣  GNews — funciona en Streamlit Cloud, plan gratis: 100 req/día
     if GNEWS_API_KEY != "TU_GNEWS_API_KEY_AQUI":
-        df = _fetch_gnews(query)
-        if not df.empty:
-            _save_cache(cache_name, df.to_dict("records"))
-            return df
+        for alias in POLITICIAN_ALIASES:
+            df = _fetch_gnews(alias)
+            if not df.empty:
+                frames.append(df)
+        if frames:
+            result = pd.concat(frames).drop_duplicates(subset=["url"]).reset_index(drop=True)
+            _save_cache(cache_name, result.to_dict("records"))
+            return result
 
     # 2️⃣  RSS feeds de medios mexicanos — sin clave, sin límites
-    df_rss = _fetch_rss_mx(query)
+    df_rss = _fetch_rss_mx(POLITICIAN_ALIASES)
     if not df_rss.empty:
         _save_cache(cache_name, df_rss.to_dict("records"))
         return df_rss
@@ -323,9 +329,10 @@ _RSS_FEEDS_MX = [
 ]
 
 
-def _fetch_rss_mx(query: str) -> pd.DataFrame:
+def _fetch_rss_mx(aliases) -> pd.DataFrame:
     """
     Descarga y filtra RSS feeds de medios mexicanos.
+    aliases puede ser str o list[str]. Acepta artículos que mencionen cualquier alias.
     No requiere API key ni tiene límites de producción.
     """
     try:
@@ -334,7 +341,9 @@ def _fetch_rss_mx(query: str) -> pd.DataFrame:
         logger.warning("feedparser no instalado. Instala con: pip install feedparser")
         return pd.DataFrame()
 
-    query_lower = query.lower()
+    if isinstance(aliases, str):
+        aliases = [aliases]
+    aliases_lower = [a.lower() for a in aliases]
     rows = []
 
     for feed_url in _RSS_FEEDS_MX:
@@ -344,8 +353,8 @@ def _fetch_rss_mx(query: str) -> pd.DataFrame:
                 title = entry.get("title", "")
                 summary = entry.get("summary", "")
                 combined_text = (title + " " + summary).lower()
-                # Solo artículos que mencionan al político o términos clave
-                if not any(term in combined_text for term in query_lower.split()):
+                # Solo artículos que mencionan alguno de los aliases
+                if not any(alias in combined_text for alias in aliases_lower):
                     continue
                 rows.append({
                     "title":        title,
