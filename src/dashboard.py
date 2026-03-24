@@ -702,6 +702,17 @@ def render_news(data: dict):
     st.markdown('<div class="section-title">Cobertura Mediática</div>', unsafe_allow_html=True)
 
     news = data.get("news_sentiment", pd.DataFrame())
+
+    # Mostrar error real de la API si existe
+    if not news.empty and "_api_error" in news.columns:
+        err_msg = news["_api_error"].iloc[0]
+        st.error(f"**Error al conectar con NewsAPI:**\n\n{err_msg}")
+        st.info(
+            "💡 **Solución más común:** El plan gratuito de NewsAPI solo funciona en `localhost`. "
+            "Para Streamlit Cloud necesitas el **plan Developer ($449/año)** o usar otra fuente de noticias."
+        )
+        return
+
     if news.empty:
         st.info("No hay datos de noticias disponibles.")
         return

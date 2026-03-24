@@ -262,10 +262,28 @@ def fetch_news(query: str = POLITICIAN_NAME) -> pd.DataFrame:
             "apiKey": NEWS_API_KEY,
         }
         resp = requests.get(url, params=params, timeout=15)
-        resp.raise_for_status()
-        data = resp.json()
 
-        articles = data.get("articles", [])
+        # Capturar el mensaje real de la API antes de raise_for_status
+        api_json = {}
+        try:
+            api_json = resp.json()
+        except Exception:
+            pass
+
+        if resp.status_code != 200 or api_json.get("status") == "error":
+            api_code = api_json.get("code", "")
+            api_msg  = api_json.get("message", resp.text[:300])
+            hint = ""
+            if api_code in ("developerBlockedRequest", "corsNotAllowed"):
+                hint = " — El plan gratuito de NewsAPI solo funciona en localhost, no en servidores en producción (Streamlit Cloud). Necesitas el plan paid."
+            err = f"NewsAPI {resp.status_code} [{api_code}]: {api_msg}{hint}"
+            logger.error(err)
+            # Devolver DataFrame vacío con el error embebido para mostrarlo en la UI
+            return pd.DataFrame([{"_api_error": err}])
+
+        resp.raise_for_status()
+
+        articles = api_json.get("articles", [])
         rows = []
         for a in articles:
             rows.append({
@@ -277,6 +295,10 @@ def fetch_news(query: str = POLITICIAN_NAME) -> pd.DataFrame:
                 "published_at": a.get("publishedAt", ""),
             })
 
+        if not rows:
+            logger.warning("NewsAPI devolvió 0 artículos para la query.")
+            return pd.DataFrame()
+
         df = pd.DataFrame(rows)
         df["published_at"] = pd.to_datetime(df["published_at"], utc=True).dt.tz_localize(None)
         df["text"] = df["title"].fillna("") + " " + df["description"].fillna("")
@@ -285,8 +307,8 @@ def fetch_news(query: str = POLITICIAN_NAME) -> pd.DataFrame:
         return df
 
     except Exception as e:
-        logger.error(f"Error NewsAPI: {e}")
-        return _news_sample_data()
+        logger.error(f"Error inesperado NewsAPI: {e}")
+        return pd.DataFrame([{"_api_error": str(e)}])
 
 
 # ─────────────────────────────────────────────────────────────
