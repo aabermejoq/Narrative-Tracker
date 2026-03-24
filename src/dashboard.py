@@ -86,6 +86,10 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 .kpi-value { font-size: 2rem; font-weight: 800; color: #58a6ff; line-height: 1.1; }
 .kpi-label { font-size: 0.78rem; color: #8b949e; text-transform: uppercase; letter-spacing: 0.8px; margin-top: 0.25rem; }
 .kpi-sub   { font-size: 0.75rem; color: #8b949e; margin-top: 0.15rem; }
+.kpi-delta { font-size: 0.75rem; font-weight: 600; margin-top: 0.35rem; }
+.delta-pos { color: #3fb950; }
+.delta-neg { color: #f85149; }
+.delta-neu { color: #8b949e; }
 
 .topic-card {
     background: #161b22;
@@ -198,6 +202,48 @@ def wordcloud_figure(word_freq: dict, title: str) -> go.Figure:
 
 
 # ─────────────────────────────────────────────────────────────
+#  HELPERS DE COMPARACIÓN TEMPORAL
+# ─────────────────────────────────────────────────────────────
+
+def _periodo_delta(
+    df: pd.DataFrame,
+    value_fn,
+    date_col: str = "date",
+    days: int = 30,
+) -> tuple:
+    """
+    Calcula (valor_actual, pct_cambio) comparando los últimos `days` días
+    contra el período anterior equivalente.
+    value_fn recibe un DataFrame y devuelve un número.
+    """
+    if df.empty:
+        return None, None
+    fechas = pd.to_datetime(df[date_col], errors="coerce")
+    now = pd.Timestamp.now()
+    reciente = df[fechas >= now - pd.Timedelta(days=days)]
+    anterior = df[(fechas >= now - pd.Timedelta(days=days * 2)) &
+                  (fechas < now - pd.Timedelta(days=days))]
+    cur = value_fn(reciente) if not reciente.empty else 0
+    prv = value_fn(anterior) if not anterior.empty else None
+    if prv is None or prv == 0:
+        return cur, None
+    return cur, (cur - prv) / abs(prv) * 100
+
+
+def _badge(pct: float | None, invertir: bool = False) -> tuple:
+    """Devuelve (texto_badge, css_class) para una tarjeta KPI."""
+    if pct is None:
+        return "sin datos prev.", "delta-neu"
+    positivo = pct > 0
+    if invertir:
+        css = "delta-neg" if positivo else "delta-pos"
+    else:
+        css = "delta-pos" if positivo else "delta-neg"
+    arrow = "▲" if positivo else "▼"
+    return f"{arrow} {abs(pct):.1f}% vs mes ant.", css
+
+
+# ─────────────────────────────────────────────────────────────
 #  SIDEBAR
 # ─────────────────────────────────────────────────────────────
 
@@ -206,7 +252,7 @@ def render_sidebar(data: dict):
         st.markdown(f"### {POLITICIAN_NAME}")
         st.markdown(
             '<div style="font-size:0.78rem;color:#8b949e;text-transform:uppercase;'
-            'letter-spacing:1px;margin-bottom:1rem;">Political Narrative Dashboard</div>',
+            'letter-spacing:1px;margin-bottom:1rem;">Panel de Narrativa Política</div>',
             unsafe_allow_html=True,
         )
         st.divider()
@@ -222,11 +268,11 @@ def render_sidebar(data: dict):
                 max_d = pd.Timestamp(valid_dates.max()).date()
                 st.markdown(
                     '<div style="font-size:0.78rem;color:#8b949e;text-transform:uppercase;'
-                    'letter-spacing:0.8px;margin-bottom:0.4rem;">Date Range</div>',
+                    'letter-spacing:0.8px;margin-bottom:0.4rem;">Rango de fechas</div>',
                     unsafe_allow_html=True,
                 )
                 start_d, end_d = st.date_input(
-                    "Date range",
+                    "Rango de fechas",
                     value=(min_d, max_d),
                     min_value=min_d,
                     max_value=max_d,
@@ -237,11 +283,11 @@ def render_sidebar(data: dict):
         st.divider()
         st.markdown(
             '<div style="font-size:0.78rem;color:#8b949e;text-transform:uppercase;'
-            'letter-spacing:0.8px;margin-bottom:0.4rem;">Data Sources</div>',
+            'letter-spacing:0.8px;margin-bottom:0.4rem;">Fuentes de datos</div>',
             unsafe_allow_html=True,
         )
         sources = st.multiselect(
-            "Sources",
+            "Fuentes",
             ["youtube", "instagram", "news"],
             default=["youtube", "instagram", "news"],
             label_visibility="collapsed",
@@ -249,22 +295,25 @@ def render_sidebar(data: dict):
         st.session_state["selected_sources"] = sources
 
         st.divider()
-        if st.button("Refresh Data", use_container_width=True):
+        if st.button("Actualizar datos", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
 
         st.divider()
-        from config import YOUTUBE_API_KEY, NEWS_API_KEY
-        yt_ok  = YOUTUBE_API_KEY  != "TU_YOUTUBE_API_KEY_AQUI"
+        from config import YOUTUBE_API_KEY, NEWS_API_KEY, EXCEL_DATA
+        yt_ok   = YOUTUBE_API_KEY != "TU_YOUTUBE_API_KEY_AQUI"
         news_ok = NEWS_API_KEY    != "TU_NEWS_API_KEY_AQUI"
+        excel_ok = EXCEL_DATA.exists()
         st.markdown(
             f"""<div class="status-row">
                 YouTube API&nbsp;&nbsp;<span class="{'status-ok' if yt_ok else 'status-warn'}">
-                    {'Connected' if yt_ok else 'Demo mode'}</span><br>
+                    {'Conectado' if yt_ok else 'Demo'}</span><br>
                 NewsAPI&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="{'status-ok' if news_ok else 'status-warn'}">
-                    {'Connected' if news_ok else 'Demo mode'}</span><br>
-                Instagram&nbsp;&nbsp;&nbsp;&nbsp;<span class="status-ok">CSV</span><br>
-                Google Trends&nbsp;<span class="status-ok">pytrends</span>
+                    {'Conectado' if news_ok else 'Demo'}</span><br>
+                Instagram&nbsp;&nbsp;&nbsp;&nbsp;<span class="{'status-ok' if excel_ok else 'status-warn'}">
+                    {'Excel' if excel_ok else 'CSV demo'}</span><br>
+                Google Trends&nbsp;<span class="{'status-ok' if excel_ok else 'status-warn'}">
+                    {'Excel' if excel_ok else 'pytrends'}</span>
             </div>""",
             unsafe_allow_html=True,
         )
@@ -275,7 +324,7 @@ def render_sidebar(data: dict):
 # ─────────────────────────────────────────────────────────────
 
 def render_overview(data: dict):
-    st.markdown('<div class="section-title">Overview</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Resumen</div>', unsafe_allow_html=True)
 
     combined   = data.get("combined_df", pd.DataFrame())
     popularity = data.get("popularity_index", pd.DataFrame())
@@ -287,21 +336,53 @@ def render_overview(data: dict):
     neg_pct    = (combined["sentiment_label"] == "NEGATIVE").mean() * 100 if not combined.empty and "sentiment_label" in combined.columns else 0
     total_views = videos["views"].sum() if not videos.empty and "views" in videos.columns else 0
 
+    # ── Deltas ──────────────────────────────────────────────
+    if not combined.empty and "date" in combined.columns:
+        _, d_mentions = _periodo_delta(combined, lambda df: len(df))
+        _, d_pos  = _periodo_delta(
+            combined[combined.get("sentiment_label", pd.Series(dtype=str)) == "POSITIVE"]
+            if "sentiment_label" in combined.columns else pd.DataFrame(),
+            lambda df: len(df) / max(len(combined), 1) * 100,
+        )
+        _, d_neg  = _periodo_delta(
+            combined[combined["sentiment_label"] == "NEGATIVE"]
+            if "sentiment_label" in combined.columns else pd.DataFrame(),
+            lambda df: len(df) / max(len(combined), 1) * 100,
+        )
+    else:
+        d_mentions = d_pos = d_neg = None
+
+    # Popularidad: comparar últimas 2 semanas del índice
+    d_pop = None
+    if not popularity.empty and "popularity_index" in popularity.columns and len(popularity) >= 2:
+        last = float(popularity["popularity_index"].iloc[-1])
+        prev = float(popularity["popularity_index"].iloc[-2])
+        d_pop = (last - prev) / abs(prev) * 100 if prev != 0 else None
+
+    badge_mentions  = _badge(d_mentions)
+    badge_pop       = _badge(d_pop)
+    badge_pos       = _badge(d_pos)
+    badge_neg       = _badge(d_neg, invertir=True)  # más negativo es malo
+
     col1, col2, col3, col4, col5 = st.columns(5)
     kpis = [
-        (col1, "Total Mentions",       f"{total_mentions:,}",  "All sources combined"),
-        (col2, "Popularity Index",     f"{avg_pop:.1f}",        "Composite / 100"),
-        (col3, "Positive Sentiment",   f"{pos_pct:.1f}%",       "Share of total"),
-        (col4, "Negative Sentiment",   f"{neg_pct:.1f}%",       "Share of total"),
-        (col5, "YouTube Views",        f"{total_views:,}",      "Cumulative"),
+        (col1, "Menciones totales",     f"{total_mentions:,}",  "Todas las fuentes",       badge_mentions, C["blue"]),
+        (col2, "Índice de popularidad", f"{avg_pop:.1f}",        "Compuesto / 100",         badge_pop,      C["purple"]),
+        (col3, "Sentimiento positivo",  f"{pos_pct:.1f}%",       "Del total de menciones",  badge_pos,      C["positive"]),
+        (col4, "Sentimiento negativo",  f"{neg_pct:.1f}%",       "Del total de menciones",  badge_neg,      C["negative"]),
+        (col5, "Vistas en YouTube",     f"{total_views:,}",      "Acumulado",               (None, "delta-neu"), C["neutral"]),
     ]
-    border_colors = [C["blue"], C["purple"], C["positive"], C["negative"], C["neutral"]]
-    for (col, label, value, sub), bc in zip(kpis, border_colors):
+    for col, label, value, sub, (badge_txt, badge_css), bc in kpis:
         with col:
+            delta_html = (
+                f'<div class="kpi-delta {badge_css}">{badge_txt}</div>'
+                if badge_txt else ""
+            )
             st.markdown(
                 f"""<div class="kpi-card" style="border-top-color:{bc};">
                     <div class="kpi-value" style="color:{bc};">{value}</div>
                     <div class="kpi-label">{label}</div>
+                    {delta_html}
                     <div class="kpi-sub">{sub}</div>
                 </div>""",
                 unsafe_allow_html=True,
@@ -309,26 +390,26 @@ def render_overview(data: dict):
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Popularity index over time
+    # Índice de popularidad en el tiempo
     if not popularity.empty and "popularity_index" in popularity.columns:
         fig = go.Figure()
         fig.add_trace(go.Scatter(
             x=popularity["week"], y=popularity["popularity_index"],
-            name="Popularity Index",
+            name="Índice de popularidad",
             line=dict(color=C["blue"], width=2.5),
             fill="tozeroy",
             fillcolor="rgba(88,166,255,0.08)",
-            hovertemplate="%{x|%b %d}<br>Index: %{y:.1f}<extra></extra>",
+            hovertemplate="%{x|%d %b}<br>Índice: %{y:.1f}<extra></extra>",
         ))
         _theme(fig, height=300,
-            title=dict(text="Composite Popularity Index — Weekly", font=dict(size=13, color=C["muted"])),
-            xaxis_title="Date",
-            yaxis_title="Index (0–100)",
+            title=dict(text="Índice de popularidad compuesto — Semanal", font=dict(size=13, color=C["muted"])),
+            xaxis_title="Fecha",
+            yaxis_title="Índice (0–100)",
             yaxis=dict(range=[0, 100], gridcolor=C["border"], zeroline=False),
         )
         st.plotly_chart(fig, use_container_width=True)
 
-    # Sentiment distribution by source
+    # Distribución de sentimiento por fuente
     if not combined.empty and "sentiment_label" in combined.columns and "source" in combined.columns:
         sent_by_source = (
             combined.groupby(["source", "sentiment_label"])
@@ -342,9 +423,9 @@ def render_overview(data: dict):
                 "NEGATIVE": C["negative"],
                 "NEUTRAL":  C["neutral"],
             },
-            title="Sentiment Distribution by Source",
+            title="Distribución de sentimiento por fuente",
             barmode="group",
-            labels={"source": "Source", "count": "Mentions", "sentiment_label": "Sentiment"},
+            labels={"source": "Fuente", "count": "Menciones", "sentiment_label": "Sentimiento"},
         )
         _theme(fig2, height=290)
         st.plotly_chart(fig2, use_container_width=True)
@@ -355,26 +436,24 @@ def render_overview(data: dict):
 # ─────────────────────────────────────────────────────────────
 
 def render_sentiment(data: dict):
-    st.markdown('<div class="section-title">Sentiment Analysis</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Análisis de Sentimiento</div>', unsafe_allow_html=True)
 
     combined = data.get("combined_df", pd.DataFrame())
     if combined.empty or "sentiment_label" not in combined.columns:
-        st.info("No sentiment data available.")
+        st.info("No hay datos de sentimiento disponibles.")
         return
 
-    # Gauge row
     col1, col2, col3 = st.columns(3)
     gauge_cfg = [
-        ("POSITIVE", C["positive"]),
-        ("NEUTRAL",  C["neutral"]),
-        ("NEGATIVE", C["negative"]),
+        ("POSITIVE", C["positive"], "Positivo"),
+        ("NEUTRAL",  C["neutral"],  "Neutral"),
+        ("NEGATIVE", C["negative"], "Negativo"),
     ]
-    for col, (label, color) in zip([col1, col2, col3], gauge_cfg):
+    for col, (label, color, label_es) in zip([col1, col2, col3], gauge_cfg):
         pct = (combined["sentiment_label"] == label).mean() * 100
         with col:
-            st.plotly_chart(make_gauge(pct, label, color), use_container_width=True)
+            st.plotly_chart(make_gauge(pct, label_es, color), use_container_width=True)
 
-    # Weekly trend
     if "date" in combined.columns:
         combined_dt = combined.dropna(subset=["date"]).copy()
         combined_dt["week"] = pd.to_datetime(combined_dt["date"], errors="coerce").dt.to_period("W").dt.to_timestamp()
@@ -392,13 +471,12 @@ def render_sentiment(data: dict):
                     "NEGATIVE": C["negative"],
                     "NEUTRAL":  C["neutral"],
                 },
-                title="Sentiment Volume — Weekly Trend",
-                labels={"week": "Week", "count": "Mentions", "sentiment_label": "Sentiment"},
+                title="Volumen de sentimiento — Tendencia semanal",
+                labels={"week": "Semana", "count": "Menciones", "sentiment_label": "Sentimiento"},
             )
             _theme(fig, height=300)
             st.plotly_chart(fig, use_container_width=True)
 
-    # Score distribution
     if "sentiment_score" in combined.columns:
         fig2 = px.histogram(
             combined, x="sentiment_score", color="sentiment_label",
@@ -407,9 +485,9 @@ def render_sentiment(data: dict):
                 "NEGATIVE": C["negative"],
                 "NEUTRAL":  C["neutral"],
             },
-            title="Sentiment Score Distribution",
+            title="Distribución de puntuación de sentimiento",
             nbins=40,
-            labels={"sentiment_score": "Score", "sentiment_label": "Class"},
+            labels={"sentiment_score": "Puntuación", "sentiment_label": "Categoría"},
             opacity=0.85,
         )
         _theme(fig2, height=270)
@@ -421,13 +499,13 @@ def render_sentiment(data: dict):
 # ─────────────────────────────────────────────────────────────
 
 def render_narratives(data: dict):
-    st.markdown('<div class="section-title">Dominant Narratives</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Narrativas Dominantes</div>', unsafe_allow_html=True)
 
     topic_labels = data.get("topic_labels", {})
     combined     = data.get("combined_df", pd.DataFrame())
 
     if not topic_labels:
-        st.info("Insufficient data for narrative detection. More comments are required.")
+        st.info("Datos insuficientes para detección de narrativas. Se requieren más comentarios.")
         return
 
     topics_list = [(tid, info) for tid, info in topic_labels.items() if tid != -1]
@@ -441,29 +519,27 @@ def render_narratives(data: dict):
             count = int((combined["topic"] == tid).sum()) if "topic" in combined.columns else 0
             st.markdown(
                 f"""<div class="topic-card">
-                    <div class="topic-id">Topic {tid + 1}</div>
+                    <div class="topic-id">Tópico {tid + 1}</div>
                     <div class="topic-words">{word_str}</div>
-                    <div class="topic-count">{count:,} mentions</div>
+                    <div class="topic-count">{count:,} menciones</div>
                 </div>""",
                 unsafe_allow_html=True,
             )
 
-    # Word cloud for selected topic
     if topics_list:
         selected_topic_idx = st.selectbox(
-            "Word cloud — select topic",
+            "Nube de palabras — selecciona tópico",
             options=[t[0] for t in topics_list],
-            format_func=lambda x: f"Topic {x + 1}: {', '.join(topic_labels[x]['words'][:3])}",
+            format_func=lambda x: f"Tópico {x + 1}: {', '.join(topic_labels[x]['words'][:3])}",
         )
         if selected_topic_idx in topic_labels:
             words = topic_labels[selected_topic_idx]["words"]
             word_freq = {w: max(10 - i * 1.5, 1) for i, w in enumerate(words)}
             st.plotly_chart(
-                wordcloud_figure(word_freq, f"Key Terms — Topic {selected_topic_idx + 1}"),
+                wordcloud_figure(word_freq, f"Términos clave — Tópico {selected_topic_idx + 1}"),
                 use_container_width=True,
             )
 
-    # Volume by topic
     if "topic" in combined.columns:
         topic_counts = combined["topic"].value_counts().reset_index()
         topic_counts.columns = ["topic_id", "count"]
@@ -472,23 +548,22 @@ def render_narratives(data: dict):
         )
         fig = px.bar(
             topic_counts.head(10), x="label", y="count",
-            title="Mention Volume by Narrative",
+            title="Volumen de menciones por narrativa",
             color="count",
             color_continuous_scale="Blues",
-            labels={"label": "Narrative", "count": "Mentions"},
+            labels={"label": "Narrativa", "count": "Menciones"},
         )
         fig.update_coloraxes(showscale=False)
         _theme(fig, height=290)
         st.plotly_chart(fig, use_container_width=True)
 
-    # 2D embedding scatter
     if "x_2d" in combined.columns and "y_2d" in combined.columns:
         sample = combined.sample(min(500, len(combined)), random_state=42)
         fig_scatter = px.scatter(
             sample, x="x_2d", y="y_2d",
             color=sample["topic"].astype(str) if "topic" in sample.columns else None,
             hover_data=["text"] if "text" in sample.columns else None,
-            title="Comment Embedding Map (2D Projection)",
+            title="Mapa de comentarios — Proyección 2D",
             opacity=0.65,
             size_max=6,
         )
@@ -502,58 +577,62 @@ def render_narratives(data: dict):
 # ─────────────────────────────────────────────────────────────
 
 def render_youtube(data: dict):
-    st.markdown('<div class="section-title">YouTube Analytics</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Analítica YouTube</div>', unsafe_allow_html=True)
 
     raw      = data.get("raw", {})
     videos   = raw.get("videos", pd.DataFrame())
-    comments = raw.get("comments", pd.DataFrame())
 
     if videos.empty:
-        st.info("No YouTube data available.")
+        st.info("No hay datos de YouTube disponibles.")
         return
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("Videos Analyzed",   len(videos))
-    col2.metric("Total Views",        f"{videos['views'].sum():,}"           if "views"          in videos.columns else "N/A")
-    col3.metric("Total Comments",     f"{videos['comments_count'].sum():,}"  if "comments_count" in videos.columns else "N/A")
+    col1.metric("Videos analizados",  len(videos))
+    col2.metric("Vistas totales",     f"{videos['views'].sum():,}"          if "views"          in videos.columns else "N/A")
+    col3.metric("Comentarios totales",f"{videos['comments_count'].sum():,}" if "comments_count" in videos.columns else "N/A")
 
-    # Top 10 by views
     if "views" in videos.columns:
         top_vids = videos.nlargest(10, "views")
         fig = px.bar(
             top_vids, x="views", y="title",
             orientation="h",
-            title="Top 10 Videos by Views",
+            title="Top 10 videos por vistas",
             color="likes" if "likes" in top_vids.columns else None,
             color_continuous_scale="Blues",
-            labels={"views": "Views", "title": "", "likes": "Likes"},
+            labels={"views": "Vistas", "title": "", "likes": "Likes"},
         )
         _theme(fig, height=400, yaxis={"categoryorder": "total ascending", "gridcolor": C["border"]})
         fig.update_coloraxes(showscale=False)
         st.plotly_chart(fig, use_container_width=True)
 
-    # Engagement scatter
     if "likes" in videos.columns and "views" in videos.columns:
         videos_copy = videos.copy()
-        videos_copy["engagement_rate"] = (
+        videos_copy["tasa_engagement"] = (
             videos_copy["likes"] / videos_copy["views"].replace(0, 1) * 100
         ).round(2)
         fig2 = px.scatter(
             videos_copy, x="views", y="likes",
             hover_name="title",
             size="comments_count" if "comments_count" in videos_copy.columns else None,
-            title="Engagement — Views vs. Likes",
-            color="engagement_rate",
+            title="Engagement — Vistas vs. Likes",
+            color="tasa_engagement",
             color_continuous_scale="Blues",
-            labels={"views": "Views", "likes": "Likes", "engagement_rate": "Eng. Rate (%)"},
+            labels={"views": "Vistas", "likes": "Likes", "tasa_engagement": "Tasa eng. (%)"},
             opacity=0.85,
         )
         _theme(fig2, height=340)
         st.plotly_chart(fig2, use_container_width=True)
 
-    with st.expander("Full Video Table"):
+    with st.expander("Tabla completa de videos"):
         display_cols = [c for c in ["title", "channel", "published_at", "views", "likes", "comments_count", "url"] if c in videos.columns]
-        st.dataframe(videos[display_cols].sort_values("views", ascending=False), use_container_width=True)
+        col_cfg = {}
+        if "url" in display_cols:
+            col_cfg["url"] = st.column_config.LinkColumn("Enlace", display_text="Ver video")
+        st.dataframe(
+            videos[display_cols].sort_values("views", ascending=False),
+            column_config=col_cfg,
+            use_container_width=True,
+        )
 
 
 # ─────────────────────────────────────────────────────────────
@@ -561,11 +640,16 @@ def render_youtube(data: dict):
 # ─────────────────────────────────────────────────────────────
 
 def render_trends(data: dict):
-    st.markdown('<div class="section-title">Google Trends</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Tendencias Google</div>', unsafe_allow_html=True)
+
+    st.caption(
+        "📊 **Nota:** Esta sección muestra búsquedas en Google de forma independiente. "
+        "Los datos de cobertura mediática (noticias) se analizan por separado en la pestaña **Medios**."
+    )
 
     trends = data.get("raw", {}).get("trends", {})
     if not trends:
-        st.info("No Google Trends data available.")
+        st.info("No hay datos de Google Trends disponibles.")
         return
 
     palette = [C["blue"], C["negative"], C["positive"], C["purple"], C["neutral"]]
@@ -582,13 +666,13 @@ def render_trends(data: dict):
                     width=2.5 if is_main else 1.5,
                     dash="solid" if is_main else "dot",
                 ),
-                hovertemplate=f"{kw}<br>%{{x|%b %d}}: %{{y:.0f}}<extra></extra>",
+                hovertemplate=f"{kw}<br>%{{x|%d %b}}: %{{y:.0f}}<extra></extra>",
             ))
 
     _theme(fig, height=380,
-        title=dict(text=f"Search Interest: {POLITICIAN_NAME} vs. Comparable Figures", font=dict(size=13, color=C["muted"])),
-        xaxis_title="Date",
-        yaxis_title="Relative Interest (0–100)",
+        title=dict(text=f"Interés de búsqueda: {POLITICIAN_NAME} vs. figuras comparables", font=dict(size=13, color=C["muted"])),
+        xaxis_title="Fecha",
+        yaxis_title="Interés relativo (0–100)",
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -596,13 +680,13 @@ def render_trends(data: dict):
     for kw, df in trends.items():
         if isinstance(df, pd.DataFrame) and "interest" in df.columns:
             avg_data.append({
-                "Politician":    kw,
-                "Avg. Interest": round(df["interest"].mean(), 1),
-                "Peak":          int(df["interest"].max()),
+                "Figura política":     kw,
+                "Interés promedio":    round(float(df["interest"].mean()), 1),
+                "Pico máximo":         int(df["interest"].max()),
             })
     if avg_data:
         st.dataframe(
-            pd.DataFrame(avg_data).sort_values("Avg. Interest", ascending=False),
+            pd.DataFrame(avg_data).sort_values("Interés promedio", ascending=False),
             use_container_width=True,
         )
 
@@ -612,18 +696,18 @@ def render_trends(data: dict):
 # ─────────────────────────────────────────────────────────────
 
 def render_news(data: dict):
-    st.markdown('<div class="section-title">Media Coverage</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Cobertura Mediática</div>', unsafe_allow_html=True)
 
     news = data.get("news_sentiment", pd.DataFrame())
     if news.empty:
-        st.info("No news data available.")
+        st.info("No hay datos de noticias disponibles.")
         return
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("Total Articles", len(news))
+    col1.metric("Total de artículos", len(news))
     if "sentiment_label" in news.columns:
-        col2.metric("Positive Coverage", int((news["sentiment_label"] == "POSITIVE").sum()))
-        col3.metric("Negative Coverage", int((news["sentiment_label"] == "NEGATIVE").sum()))
+        col2.metric("Cobertura positiva", int((news["sentiment_label"] == "POSITIVE").sum()))
+        col3.metric("Cobertura negativa", int((news["sentiment_label"] == "NEGATIVE").sum()))
 
     if "published_at" in news.columns:
         news_copy = news.copy()
@@ -639,13 +723,13 @@ def render_news(data: dict):
                     "NEGATIVE": C["negative"],
                     "NEUTRAL":  C["neutral"],
                 },
-                title="Media Coverage — Weekly Volume by Tone",
+                title="Cobertura mediática — Volumen semanal por tono",
                 barmode="stack",
-                labels={"week": "Week", "count": "Articles", "sentiment_label": "Tone"},
+                labels={"week": "Semana", "count": "Artículos", "sentiment_label": "Tono"},
             )
         else:
             weekly_news = news_copy.groupby("week").size().reset_index(name="count")
-            fig = px.bar(weekly_news, x="week", y="count", title="Media Coverage — Weekly Volume")
+            fig = px.bar(weekly_news, x="week", y="count", title="Cobertura mediática — Volumen semanal")
 
         _theme(fig, height=300)
         st.plotly_chart(fig, use_container_width=True)
@@ -655,7 +739,7 @@ def render_news(data: dict):
         source_counts.columns = ["source", "count"]
         fig2 = px.pie(
             source_counts, values="count", names="source",
-            title="Coverage by Outlet",
+            title="Cobertura por medio",
             hole=0.5,
             color_discrete_sequence=px.colors.sequential.Blues_r,
         )
@@ -672,14 +756,20 @@ def render_news(data: dict):
         with col_r:
             st.markdown(
                 '<div style="font-size:0.78rem;color:#8b949e;text-transform:uppercase;'
-                'letter-spacing:0.8px;margin-bottom:0.5rem;">Recent Articles</div>',
+                'letter-spacing:0.8px;margin-bottom:0.5rem;">Artículos recientes</div>',
                 unsafe_allow_html=True,
             )
-            display_cols = [c for c in ["title", "source", "published_at", "sentiment_label"] if c in news.columns]
-            st.dataframe(
-                news[display_cols].sort_values("published_at", ascending=False).head(15),
-                use_container_width=True,
-            )
+            display_cols = [c for c in ["title", "source", "published_at", "sentiment_label", "url"] if c in news.columns]
+            news_display = news[display_cols].sort_values("published_at", ascending=False).head(20).copy()
+            col_cfg = {
+                "title":         st.column_config.TextColumn("Título"),
+                "source":        st.column_config.TextColumn("Medio"),
+                "published_at":  st.column_config.DatetimeColumn("Fecha", format="DD/MM/YYYY"),
+                "sentiment_label": st.column_config.TextColumn("Sentimiento"),
+            }
+            if "url" in news_display.columns:
+                col_cfg["url"] = st.column_config.LinkColumn("Enlace", display_text="Ver artículo")
+            st.dataframe(news_display, column_config=col_cfg, use_container_width=True)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -687,7 +777,7 @@ def render_news(data: dict):
 # ─────────────────────────────────────────────────────────────
 
 def render_instagram(data: dict):
-    st.markdown('<div class="section-title">Instagram Analysis</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Análisis Instagram</div>', unsafe_allow_html=True)
 
     combined = data.get("combined_df", pd.DataFrame())
     ig_data  = (
@@ -699,15 +789,15 @@ def render_instagram(data: dict):
     if ig_data.empty:
         ig_raw = data.get("raw", {}).get("instagram", pd.DataFrame())
         if ig_raw.empty:
-            st.info("No Instagram data. Upload your CSV to data/raw/instagram_comments.csv")
+            st.info("Sin datos de Instagram. Coloca el Excel en la raíz del proyecto.")
             return
         ig_data = ig_raw
 
     col1, col2 = st.columns(2)
-    col1.metric("Instagram Comments", len(ig_data))
+    col1.metric("Comentarios Instagram", len(ig_data))
     if "sentiment_label" in ig_data.columns:
         pos_pct = (ig_data["sentiment_label"] == "POSITIVE").mean() * 100
-        col2.metric("Positive Sentiment", f"{pos_pct:.1f}%")
+        col2.metric("Sentimiento positivo", f"{pos_pct:.1f}%")
 
         sent_counts = ig_data["sentiment_label"].value_counts().reset_index()
         sent_counts.columns = ["sentiment", "count"]
@@ -719,7 +809,7 @@ def render_instagram(data: dict):
                 "NEGATIVE": C["negative"],
                 "NEUTRAL":  C["neutral"],
             },
-            title="Sentiment Distribution — Instagram",
+            title="Distribución de sentimiento — Instagram",
             hole=0.5,
         )
         fig.update_layout(
@@ -737,9 +827,9 @@ def render_instagram(data: dict):
         weekly = ig_dt.groupby("week").size().reset_index(name="count")
         fig2 = px.line(
             weekly, x="week", y="count",
-            title="Comment Volume — Instagram Weekly",
+            title="Volumen de comentarios — Instagram semanal",
             markers=True,
-            labels={"week": "Week", "count": "Comments"},
+            labels={"week": "Semana", "count": "Comentarios"},
         )
         fig2.update_traces(line_color=C["purple"], marker=dict(size=5))
         _theme(fig2, height=270)
@@ -754,17 +844,17 @@ def render_instagram(data: dict):
         )
         fig3 = px.bar(
             ig_topics.head(8), x="label", y="count",
-            title="Top Topics — Instagram",
+            title="Tópicos principales — Instagram",
             color="count",
             color_continuous_scale="Purples",
-            labels={"label": "Topic", "count": "Mentions"},
+            labels={"label": "Tópico", "count": "Menciones"},
         )
         fig3.update_coloraxes(showscale=False)
         _theme(fig3, height=270)
         st.plotly_chart(fig3, use_container_width=True)
 
-    with st.expander("Raw Comment Sample"):
-        display_cols = [c for c in ["text", "date", "sentiment_label", "topic"] if c in ig_data.columns]
+    with st.expander("Muestra de comentarios"):
+        display_cols = [c for c in ["text", "date", "likes", "sentiment_label", "topic"] if c in ig_data.columns]
         st.dataframe(ig_data[display_cols].head(100), use_container_width=True)
 
 
@@ -774,7 +864,7 @@ def render_instagram(data: dict):
 
 def main():
     st.set_page_config(
-        page_title=f"{POLITICIAN_NAME} — Narrative Intelligence",
+        page_title=f"{POLITICIAN_NAME} — Inteligencia Narrativa",
         page_icon=None,
         layout="wide",
         initial_sidebar_state="expanded",
@@ -783,22 +873,22 @@ def main():
 
     st.markdown(f'<div class="main-title">{POLITICIAN_NAME}</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="main-subtitle">Political Narrative Intelligence &nbsp;|&nbsp; Quintana Roo, Mexico</div>',
+        '<div class="main-subtitle">Inteligencia de Narrativa Política &nbsp;|&nbsp; Quintana Roo, México</div>',
         unsafe_allow_html=True,
     )
 
-    with st.spinner("Loading and processing data sources..."):
+    with st.spinner("Cargando y procesando fuentes de datos..."):
         data = load_all_data()
 
     render_sidebar(data)
 
     tabs = st.tabs([
-        "Overview",
-        "Sentiment",
-        "Narratives",
+        "Resumen",
+        "Sentimiento",
+        "Narrativas",
         "YouTube",
-        "Google Trends",
-        "Media",
+        "Tendencias Google",
+        "Medios",
         "Instagram",
     ])
 
@@ -813,8 +903,8 @@ def main():
     st.divider()
     st.markdown(
         f'<div style="font-size:0.75rem;color:#8b949e;">'
-        f'Last updated: {pd.Timestamp.now().strftime("%Y-%m-%d %H:%M UTC")}'
-        f' &nbsp;|&nbsp; Political Narrative Intelligence Platform'
+        f'Actualizado: {pd.Timestamp.now().strftime("%d/%m/%Y %H:%M UTC")}'
+        f' &nbsp;|&nbsp; Plataforma de Inteligencia de Narrativa Política'
         f'</div>',
         unsafe_allow_html=True,
     )

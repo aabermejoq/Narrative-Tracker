@@ -72,5 +72,8 @@ BERTOPIC_MIN_CLUSTER = 10
 # Instagram CSV (coloca tu archivo aquí)
 INSTAGRAM_CSV = DATA_RAW / "instagram_comments.csv"
 
+# Excel con datos reales (Google Trends + Instagram)
+EXCEL_DATA = BASE_DIR / "data gino.xlsx"
+
 # Cache TTL en horas
 CACHE_TTL_HOURS = 6

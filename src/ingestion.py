@@ -22,7 +22,7 @@ from config import (
     POLITICIAN_QUERY_VARIANTS, COMPARISON_POLITICIANS,
     REGION, TRENDS_START, YOUTUBE_MAX_RESULTS, YOUTUBE_MAX_COMMENTS,
     NEWS_LOOKBACK_DAYS, DATA_RAW, DATA_CACHE, CACHE_TTL_HOURS,
-    INSTAGRAM_CSV,
+    INSTAGRAM_CSV, EXCEL_DATA,
 )
 
 
@@ -340,6 +340,187 @@ def load_instagram_data(csv_path: Path = INSTAGRAM_CSV) -> pd.DataFrame:
 
 
 # ─────────────────────────────────────────────────────────────
+#  EXCEL (strict OOXML — "data gino.xlsx")
+# ─────────────────────────────────────────────────────────────
+
+def _read_strict_xlsx_cells(filepath: Path, sheet_idx: int) -> list:
+    """
+    Lee todas las celdas de una hoja de un xlsx strict OOXML
+    (namespace purl.oclc.org que openpyxl no soporta).
+    Devuelve lista de (row_num, col_letter, value).
+    """
+    import zipfile
+    import xml.etree.ElementTree as ET
+
+    NS = "http://purl.oclc.org/ooxml/spreadsheetml/main"
+
+    with zipfile.ZipFile(filepath, "r") as z:
+        # Shared strings
+        ss_raw = z.read("xl/sharedStrings.xml").decode("utf-8")
+        ss_root = ET.fromstring(ss_raw)
+        strings = []
+        for si in ss_root:
+            parts = [t.text for t in si.iter(f"{{{NS}}}t") if t.text]
+            strings.append("".join(parts))
+
+        sheet_file = f"xl/worksheets/sheet{sheet_idx + 1}.xml"
+        s_raw = z.read(sheet_file).decode("utf-8")
+        s_root = ET.fromstring(s_raw)
+
+        cells = []
+        for row_el in s_root.iter(f"{{{NS}}}row"):
+            row_num = int(row_el.get("r", 0))
+            for c in row_el:
+                ref = c.get("r", "")
+                col = "".join(ch for ch in ref if ch.isalpha())
+                v_el = c.find(f"{{{NS}}}v")
+                ctype = c.get("t", "")
+                raw = v_el.text if v_el is not None else None
+                if raw is None:
+                    continue
+                if ctype == "s":
+                    val = strings[int(raw)]
+                else:
+                    try:
+                        f = float(raw)
+                        val = int(f) if f == int(f) else f
+                    except (ValueError, TypeError):
+                        val = raw
+                cells.append((row_num, col, val))
+        return cells
+
+
+def load_excel_google_trends(filepath: Path = EXCEL_DATA) -> dict:
+    """
+    Lee la hoja 'data gino' del Excel:
+      Fila 1: metadata (ignorar)
+      Fila 2: Semana | Keyword1 | Keyword2 | ...
+      Fila 3+: YYYY-MM-DD | valores
+    Devuelve dict {keyword: DataFrame(date, interest)}.
+    """
+    if not filepath.exists():
+        logger.warning(f"Excel no encontrado: {filepath}")
+        return {}
+
+    try:
+        cells = _read_strict_xlsx_cells(filepath, sheet_idx=0)
+
+        # Organizar en dict row → {col: value}
+        from collections import defaultdict
+        rows: dict = defaultdict(dict)
+        for rn, col, val in cells:
+            rows[rn][col] = val
+
+        sorted_rows = sorted(rows.items())
+        # Fila 2 = headers
+        header_row = sorted_rows[1][1] if len(sorted_rows) > 1 else {}
+        col_order = sorted(header_row.keys())
+        headers = [header_row.get(c, c) for c in col_order]  # e.g. Semana, Morena:..., Gino:...
+
+        results = {}
+        for rn, row_dict in sorted_rows[2:]:  # skip fila 1 (metadata) y fila 2 (headers)
+            date_val = row_dict.get(col_order[0], None)
+            if date_val is None:
+                continue
+            for i, col in enumerate(col_order[1:], 1):
+                kw_raw = headers[i]
+                # Normalizar nombre: "Gino Segura: (Quintana Roo)" → "Gino Segura"
+                kw = kw_raw.split(":")[0].strip() if isinstance(kw_raw, str) else str(kw_raw)
+                interest = row_dict.get(col, 0)
+                try:
+                    interest = int(interest)
+                except (ValueError, TypeError):
+                    interest = 0
+                if kw not in results:
+                    results[kw] = []
+                results[kw].append({"date": str(date_val), "interest": interest})
+
+        final = {}
+        for kw, records in results.items():
+            df = pd.DataFrame(records)
+            df["date"] = pd.to_datetime(df["date"], errors="coerce")
+            df = df.dropna(subset=["date"]).sort_values("date")
+            final[kw] = df
+
+        logger.info(f"Excel Trends: {list(final.keys())}")
+        return final
+
+    except Exception as e:
+        logger.error(f"Error leyendo Excel Trends: {e}")
+        return {}
+
+
+def load_excel_instagram(filepath: Path = EXCEL_DATA) -> pd.DataFrame:
+    """
+    Lee la hoja 'instagram' del Excel.
+    Formato: columna A única, patrón alternado:
+      Fila comment: texto del comentario
+      Fila meta:    'Xw Y likesReply'  →  X semanas atrás, Y likes
+    Devuelve DataFrame(text, date, likes, source).
+    """
+    if not filepath.exists():
+        logger.warning(f"Excel no encontrado: {filepath}")
+        return pd.DataFrame()
+
+    try:
+        import re
+        cells = _read_strict_xlsx_cells(filepath, sheet_idx=1)
+
+        # Solo columna A, ordenadas por fila
+        col_a = [(rn, str(val)) for rn, col, val in cells if col == "A"]
+        col_a.sort(key=lambda x: x[0])
+
+        META_RE = re.compile(r"^(\d+)w\s*(\d+)\s*likes?Reply", re.IGNORECASE)
+        EDIT_RE = re.compile(r"^Edited\s*[·•]\s*\d+w", re.IGNORECASE)
+
+        records = []
+        i = 0
+        while i < len(col_a):
+            _, text = col_a[i]
+            text = text.strip()
+
+            # Saltar líneas vacías, metadata de post y líneas de metadatos
+            if not text or EDIT_RE.match(text) or META_RE.match(text):
+                i += 1
+                continue
+
+            # Buscar metadata en la siguiente línea
+            weeks_ago, likes = None, 0
+            if i + 1 < len(col_a):
+                _, nxt = col_a[i + 1]
+                m = META_RE.match(nxt.strip())
+                if m:
+                    weeks_ago = int(m.group(1))
+                    likes = int(m.group(2))
+                    i += 2
+                    records.append({"text": text, "weeks_ago": weeks_ago, "likes": likes})
+                    continue
+
+            records.append({"text": text, "weeks_ago": weeks_ago, "likes": likes})
+            i += 1
+
+        if not records:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(records)
+        ref_date = datetime.now()
+        df["date"] = df["weeks_ago"].apply(
+            lambda w: (ref_date - timedelta(weeks=int(w))).strftime("%Y-%m-%d")
+            if pd.notna(w) and w is not None else None
+        )
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+        df["source"] = "instagram"
+        df = df[df["text"].str.len() > 3].copy()
+
+        logger.info(f"Excel Instagram: {len(df)} comentarios cargados")
+        return df[["text", "date", "likes", "source"]].copy()
+
+    except Exception as e:
+        logger.error(f"Error leyendo Excel Instagram: {e}")
+        return pd.DataFrame()
+
+
+# ─────────────────────────────────────────────────────────────
 #  DATOS DE EJEMPLO (fallback cuando no hay API keys)
 # ─────────────────────────────────────────────────────────────
 
@@ -493,9 +674,20 @@ def ingest_all() -> dict:
     videos_df = fetch_youtube_videos()
     video_ids = videos_df["video_id"].tolist() if not videos_df.empty else []
     comments_df = fetch_youtube_comments(video_ids)
-    trends_data = fetch_google_trends()
     news_df = fetch_news()
-    instagram_df = load_instagram_data()
+
+    # Preferir datos del Excel si existe
+    if EXCEL_DATA.exists():
+        logger.info(f"Usando Excel: {EXCEL_DATA}")
+        trends_data = load_excel_google_trends()
+        instagram_df = load_excel_instagram()
+        if instagram_df.empty:
+            instagram_df = load_instagram_data()
+        if not trends_data:
+            trends_data = fetch_google_trends()
+    else:
+        trends_data = fetch_google_trends()
+        instagram_df = load_instagram_data()
 
     # Guardar copias procesadas
     videos_df.to_csv(DATA_RAW / "youtube_videos.csv", index=False)
