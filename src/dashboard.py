@@ -377,7 +377,8 @@ def render_sentiment(data: dict):
     # Weekly trend
     if "date" in combined.columns:
         combined_dt = combined.dropna(subset=["date"]).copy()
-        combined_dt["week"] = pd.to_datetime(combined_dt["date"]).dt.to_period("W").dt.to_timestamp()
+        combined_dt["week"] = pd.to_datetime(combined_dt["date"], errors="coerce").dt.to_period("W").dt.to_timestamp()
+        combined_dt = combined_dt.dropna(subset=["week"])
         weekly_sent = (
             combined_dt.groupby(["week", "sentiment_label"])
             .size()
@@ -626,7 +627,8 @@ def render_news(data: dict):
 
     if "published_at" in news.columns:
         news_copy = news.copy()
-        news_copy["week"] = pd.to_datetime(news_copy["published_at"]).dt.to_period("W").dt.to_timestamp()
+        news_copy["week"] = pd.to_datetime(news_copy["published_at"], errors="coerce").dt.to_period("W").dt.to_timestamp()
+        news_copy = news_copy.dropna(subset=["week"])
 
         if "sentiment_label" in news_copy.columns:
             weekly_news = news_copy.groupby(["week", "sentiment_label"]).size().reset_index(name="count")
@@ -730,7 +732,8 @@ def render_instagram(data: dict):
 
     if "date" in ig_data.columns and not ig_data["date"].isna().all():
         ig_dt = ig_data.dropna(subset=["date"]).copy()
-        ig_dt["week"] = pd.to_datetime(ig_dt["date"]).dt.to_period("W").dt.to_timestamp()
+        ig_dt["week"] = pd.to_datetime(ig_dt["date"], errors="coerce").dt.to_period("W").dt.to_timestamp()
+        ig_dt = ig_dt.dropna(subset=["week"])
         weekly = ig_dt.groupby("week").size().reset_index(name="count")
         fig2 = px.line(
             weekly, x="week", y="count",
