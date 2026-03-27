@@ -567,11 +567,20 @@ def run_pipeline(data: dict) -> dict:
         POLITICIAN_NAME,
     )
 
-    # Guardar resultados
+    # Guardar resultados (CSV persistidos en el repositorio)
     if not combined.empty:
         combined.to_csv(DATA_PROCESSED / "combined_analysis.csv", index=False)
     if not results["popularity_index"].empty:
         results["popularity_index"].to_csv(DATA_PROCESSED / "popularity_index.csv", index=False)
+    if not results.get("news_sentiment", pd.DataFrame()).empty:
+        results["news_sentiment"].to_csv(DATA_PROCESSED / "news_sentiment.csv", index=False)
+
+    # Guardar topic_labels como JSON para carga rápida
+    if results.get("topic_labels"):
+        import json
+        serializable = {str(k): v for k, v in results["topic_labels"].items()}
+        with open(DATA_PROCESSED / "topic_labels.json", "w", encoding="utf-8") as fj:
+            json.dump(serializable, fj, ensure_ascii=False)
 
     logger.info("=== Pipeline NLP completado ===")
     return results

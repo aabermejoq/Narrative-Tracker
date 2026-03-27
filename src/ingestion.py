@@ -22,7 +22,7 @@ from config import (
     POLITICIAN_QUERY_VARIANTS, COMPARISON_POLITICIANS,
     REGION, TRENDS_START, YOUTUBE_MAX_RESULTS, YOUTUBE_MAX_COMMENTS,
     NEWS_LOOKBACK_DAYS, DATA_RAW, DATA_CACHE, CACHE_TTL_HOURS,
-    INSTAGRAM_CSV, EXCEL_DATA,
+    INSTAGRAM_CSV, EXCEL_DATA, RSS_FEEDS,
 )
 
 
@@ -236,18 +236,98 @@ def fetch_google_trends(keywords: list = None) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────
-#  NEWS API
+#  NOTICIAS — RSS (primario) + NewsAPI (fallback)
 # ─────────────────────────────────────────────────────────────
 
-def fetch_news(query: str = POLITICIAN_NAME) -> pd.DataFrame:
-    """Obtiene noticias desde NewsAPI."""
-    cache_name = f"news_{query.replace(' ', '_')}"
+def fetch_rss_news(query: str = POLITICIAN_NAME) -> pd.DataFrame:
+    """
+    Obtiene noticias desde feeds RSS de medios mexicanos.
+    Filtra artículos que mencionen al político o palabras clave relacionadas.
+    """
+    cache_name = f"rss_news_{query.replace(' ', '_')}"
     cached = _load_cache(cache_name)
     if cached:
         return pd.DataFrame(cached)
 
+    try:
+        import feedparser
+        from time import mktime
+
+        # Keywords para filtrar artículos relevantes
+        search_terms = [v.lower() for v in POLITICIAN_QUERY_VARIANTS] + [
+            "quintana roo", "qroo", "cancun", "cancún",
+            "chetumal", "playa del carmen", "tulum",
+        ]
+
+        cutoff = datetime.now() - timedelta(days=NEWS_LOOKBACK_DAYS)
+        articles = []
+        feed_ok = 0
+
+        for feed_url in RSS_FEEDS:
+            try:
+                feed = feedparser.parse(feed_url)
+                for entry in feed.entries[:100]:
+                    title   = getattr(entry, "title",   "") or ""
+                    summary = getattr(entry, "summary", "") or ""
+                    combined = (title + " " + summary).lower()
+
+                    if not any(kw in combined for kw in search_terms):
+                        continue
+
+                    # Fecha de publicación
+                    pub = None
+                    for attr in ("published_parsed", "updated_parsed"):
+                        val = getattr(entry, attr, None)
+                        if val:
+                            try:
+                                pub = datetime.fromtimestamp(mktime(val))
+                            except Exception:
+                                pass
+                            break
+                    if pub is None:
+                        pub = datetime.now()
+
+                    if pub < cutoff:
+                        continue
+
+                    articles.append({
+                        "title":        title,
+                        "description":  summary[:400],
+                        "content":      summary[:800],
+                        "source":       feed.feed.get("title", feed_url),
+                        "url":          getattr(entry, "link", ""),
+                        "published_at": pub,
+                        "text":         title + " " + summary,
+                    })
+                feed_ok += 1
+            except Exception as fe:
+                logger.debug(f"Feed no disponible {feed_url}: {fe}")
+                continue
+
+        logger.info(f"RSS: {feed_ok}/{len(RSS_FEEDS)} feeds leídos, {len(articles)} artículos")
+
+        if not articles:
+            return _news_sample_data()
+
+        df = pd.DataFrame(articles)
+        df["published_at"] = pd.to_datetime(df["published_at"], errors="coerce")
+        df = df.drop_duplicates(subset=["title"]).sort_values("published_at", ascending=False)
+        df = df.reset_index(drop=True)
+
+        _save_cache(cache_name, df.to_dict("records"))
+        return df
+
+    except ImportError:
+        logger.warning("feedparser no instalado. Intentando NewsAPI.")
+        return _fetch_news_api(query)
+    except Exception as e:
+        logger.error(f"Error RSS: {e}")
+        return _news_sample_data()
+
+
+def _fetch_news_api(query: str = POLITICIAN_NAME) -> pd.DataFrame:
+    """Obtiene noticias desde NewsAPI (fallback cuando RSS falla)."""
     if NEWS_API_KEY == "TU_NEWS_API_KEY_AQUI":
-        logger.warning("NewsAPI key no configurada. Usando datos de ejemplo.")
         return _news_sample_data()
 
     try:
@@ -265,28 +345,31 @@ def fetch_news(query: str = POLITICIAN_NAME) -> pd.DataFrame:
         resp.raise_for_status()
         data = resp.json()
 
-        articles = data.get("articles", [])
         rows = []
-        for a in articles:
+        for a in data.get("articles", []):
             rows.append({
-                "title": a.get("title", ""),
-                "description": a.get("description", ""),
-                "content": (a.get("content") or "")[:800],
-                "source": a.get("source", {}).get("name", ""),
-                "url": a.get("url", ""),
+                "title":        a.get("title", ""),
+                "description":  a.get("description", ""),
+                "content":      (a.get("content") or "")[:800],
+                "source":       a.get("source", {}).get("name", ""),
+                "url":          a.get("url", ""),
                 "published_at": a.get("publishedAt", ""),
             })
 
         df = pd.DataFrame(rows)
         df["published_at"] = pd.to_datetime(df["published_at"], utc=True).dt.tz_localize(None)
         df["text"] = df["title"].fillna("") + " " + df["description"].fillna("")
-        _save_cache(cache_name, df.to_dict("records"))
         logger.info(f"NewsAPI: {len(df)} noticias obtenidas")
         return df
 
     except Exception as e:
         logger.error(f"Error NewsAPI: {e}")
         return _news_sample_data()
+
+
+def fetch_news(query: str = POLITICIAN_NAME) -> pd.DataFrame:
+    """Obtiene noticias: RSS primero, NewsAPI como fallback."""
+    return fetch_rss_news(query)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -689,11 +772,18 @@ def ingest_all() -> dict:
         trends_data = fetch_google_trends()
         instagram_df = load_instagram_data()
 
-    # Guardar copias procesadas
+    # Guardar copias en CSV (persistidas en el repositorio)
     videos_df.to_csv(DATA_RAW / "youtube_videos.csv", index=False)
     comments_df.to_csv(DATA_RAW / "youtube_comments.csv", index=False)
     news_df.to_csv(DATA_RAW / "news.csv", index=False)
     instagram_df.to_csv(DATA_RAW / "instagram.csv", index=False)
+
+    # Guardar trends: un CSV por keyword
+    trends_dir = DATA_RAW / "trends"
+    trends_dir.mkdir(exist_ok=True)
+    for kw, df_t in trends_data.items():
+        safe_kw = kw.replace(" ", "_").replace("/", "_").replace(":", "")
+        df_t.to_csv(trends_dir / f"{safe_kw}.csv", index=False)
 
     logger.info("=== Ingesta completada ===")
 

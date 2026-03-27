@@ -15,6 +15,7 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import (
     POLITICIAN_NAME, COMPARISON_POLITICIANS, DATA_PROCESSED, DATA_CACHE,
+    DATA_RAW, PROCESSED_TTL_HOURS,
 )
 
 # ─────────────────────────────────────────────────────────────
@@ -116,8 +117,120 @@ div[data-testid="stMetricValue"] { font-size: 1.6rem !important; font-weight: 70
 #  DATA LOADING
 # ─────────────────────────────────────────────────────────────
 
-@st.cache_data(ttl=3600, show_spinner="Ingesting and processing data sources...")
+def _processed_csvs_fresh() -> bool:
+    """True si los CSVs procesados existen y tienen menos de PROCESSED_TTL_HOURS horas."""
+    import time as _time
+    required = [
+        DATA_PROCESSED / "combined_analysis.csv",
+        DATA_PROCESSED / "popularity_index.csv",
+    ]
+    now_ts = _time.time()
+    for p in required:
+        if not p.exists():
+            return False
+        age_h = (now_ts - p.stat().st_mtime) / 3600
+        if age_h > PROCESSED_TTL_HOURS:
+            return False
+    return True
+
+
+def _load_from_csvs() -> dict:
+    """Carga resultados pre-procesados desde CSV. Arranque en < 2 segundos."""
+    import json as _json
+
+    results: dict = {}
+
+    # ── Textos analizados ──────────────────────────────────
+    combined_path = DATA_PROCESSED / "combined_analysis.csv"
+    combined = pd.read_csv(combined_path) if combined_path.exists() else pd.DataFrame()
+    for col in ("date",):
+        if col in combined.columns:
+            combined[col] = pd.to_datetime(combined[col], errors="coerce")
+    results["combined_df"] = combined
+    results["sentiment_df"] = combined
+
+    # ── Índice de popularidad ─────────────────────────────
+    pop_path = DATA_PROCESSED / "popularity_index.csv"
+    popularity = pd.read_csv(pop_path) if pop_path.exists() else pd.DataFrame()
+    if "week" in popularity.columns:
+        popularity["week"] = pd.to_datetime(popularity["week"], errors="coerce")
+    results["popularity_index"] = popularity
+
+    # ── Sentimiento en noticias ───────────────────────────
+    news_sent_path = DATA_PROCESSED / "news_sentiment.csv"
+    if news_sent_path.exists():
+        news_sent = pd.read_csv(news_sent_path)
+        if "published_at" in news_sent.columns:
+            news_sent["published_at"] = pd.to_datetime(news_sent["published_at"], errors="coerce")
+        results["news_sentiment"] = news_sent
+    else:
+        results["news_sentiment"] = pd.DataFrame()
+
+    # ── Tópicos ───────────────────────────────────────────
+    topics_path = DATA_PROCESSED / "topic_labels.json"
+    if topics_path.exists():
+        with open(topics_path, encoding="utf-8") as fj:
+            raw_topics = _json.load(fj)
+        # Las keys se guardaron como str; reconvertir a int donde sea posible
+        results["topic_labels"] = {
+            (int(k) if k.lstrip("-").isdigit() else k): v
+            for k, v in raw_topics.items()
+        }
+    else:
+        results["topic_labels"] = {}
+
+    results["embeddings"] = None
+
+    # ── Datos crudos ──────────────────────────────────────
+    raw: dict = {}
+
+    videos_path = DATA_RAW / "youtube_videos.csv"
+    if videos_path.exists():
+        vdf = pd.read_csv(videos_path)
+        if "published_at" in vdf.columns:
+            vdf["published_at"] = pd.to_datetime(vdf["published_at"], errors="coerce")
+        raw["videos"] = vdf
+    else:
+        raw["videos"] = pd.DataFrame()
+
+    news_path = DATA_RAW / "news.csv"
+    if news_path.exists():
+        ndf = pd.read_csv(news_path)
+        if "published_at" in ndf.columns:
+            ndf["published_at"] = pd.to_datetime(ndf["published_at"], errors="coerce")
+        raw["news"] = ndf
+    else:
+        raw["news"] = pd.DataFrame()
+
+    ig_path = DATA_RAW / "instagram.csv"
+    raw["instagram"] = pd.read_csv(ig_path) if ig_path.exists() else pd.DataFrame()
+
+    comments_path = DATA_RAW / "youtube_comments.csv"
+    raw["comments"] = pd.read_csv(comments_path) if comments_path.exists() else pd.DataFrame()
+
+    # Trends: un CSV por keyword en data/raw/trends/
+    trends: dict = {}
+    trends_dir = DATA_RAW / "trends"
+    if trends_dir.exists():
+        for tf in trends_dir.glob("*.csv"):
+            kw = tf.stem.replace("_", " ")
+            tdf = pd.read_csv(tf)
+            if "date" in tdf.columns:
+                tdf["date"] = pd.to_datetime(tdf["date"], errors="coerce")
+            trends[kw] = tdf
+    raw["trends"] = trends
+
+    results["raw"] = raw
+    return results
+
+
+@st.cache_data(ttl=3600, show_spinner="Cargando datos...")
 def load_all_data():
+    # ── Ruta rápida: CSVs ya procesados ───────────────────
+    if _processed_csvs_fresh():
+        return _load_from_csvs()
+
+    # ── Ruta completa: ingesta + NLP (primera vez o refresh) ─
     from ingestion import ingest_all
     from nlp_pipeline import run_pipeline
     raw_data = ingest_all()
