@@ -253,15 +253,27 @@ def fetch_rss_news(query: str = POLITICIAN_NAME) -> pd.DataFrame:
         import feedparser
         from time import mktime
 
-        # Keywords para filtrar artículos relevantes
-        search_terms = [v.lower() for v in POLITICIAN_QUERY_VARIANTS] + [
-            "quintana roo", "qroo", "cancun", "cancún",
-            "chetumal", "playa del carmen", "tulum",
+        # Keywords directos (basta con que aparezca uno)
+        primary_terms = [v.lower() for v in POLITICIAN_QUERY_VARIANTS]
+        # Pares booleanos: ambas palabras deben estar presentes
+        boolean_pairs = [
+            ("senado", "quintana roo"),
+            ("morena", "quintana roo"),
+            ("senado", "qroo"),
+            ("morena", "qroo"),
+            ("senado", "cancún"),
+            ("senado", "cancun"),
         ]
 
         cutoff = datetime.now() - timedelta(days=NEWS_LOOKBACK_DAYS)
         articles = []
         feed_ok = 0
+
+        def _matches(text: str) -> bool:
+            t = text.lower()
+            if any(kw in t for kw in primary_terms):
+                return True
+            return any(a in t and b in t for a, b in boolean_pairs)
 
         for feed_url in RSS_FEEDS:
             try:
@@ -269,9 +281,9 @@ def fetch_rss_news(query: str = POLITICIAN_NAME) -> pd.DataFrame:
                 for entry in feed.entries[:100]:
                     title   = getattr(entry, "title",   "") or ""
                     summary = getattr(entry, "summary", "") or ""
-                    combined = (title + " " + summary).lower()
+                    combined = title + " " + summary
 
-                    if not any(kw in combined for kw in search_terms):
+                    if not _matches(combined):
                         continue
 
                     # Fecha de publicación
@@ -691,32 +703,8 @@ def _trends_sample_data(keywords: list) -> dict:
 
 
 def _news_sample_data() -> pd.DataFrame:
-    import numpy as np
-    titles = [
-        "Gino Segura presenta plan de seguridad para Quintana Roo",
-        "Propuesta de Gino Segura para el desarrollo turístico",
-        "Gino Segura critica gestión municipal en QRoo",
-        "Debate político: Gino Segura y sus propuestas",
-        "Gino Segura encabeza foro de desarrollo económico",
-        "Análisis: ¿Qué propone Gino Segura para QRoo?",
-        "Gino Segura recorre municipios del estado",
-        "Gino Segura habla sobre infraestructura en Cancún",
-        "Reunión de Gino Segura con líderes empresariales",
-        "Gino Segura y la agenda ambiental en QRoo",
-    ] * 4
-    dates = pd.date_range(
-        datetime.now() - timedelta(days=NEWS_LOOKBACK_DAYS),
-        periods=len(titles), freq="4D"
-    )
-    return pd.DataFrame({
-        "title": titles,
-        "description": ["Nota informativa sobre " + t[:30] + "..." for t in titles],
-        "content": ["Contenido completo de la noticia. " * 5 for _ in titles],
-        "source": np.random.choice(["Por Esto QRoo", "Novedades", "El Universal", "La Jornada", "Proceso"], len(titles)),
-        "url": [f"https://example.com/news/{i}" for i in range(len(titles))],
-        "published_at": dates,
-        "text": titles,
-    })
+    """Retorna DataFrame vacío con las columnas correctas — no datos falsos."""
+    return pd.DataFrame(columns=["title", "description", "content", "source", "url", "published_at", "text"])
 
 
 def _instagram_sample_data() -> pd.DataFrame:

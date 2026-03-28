@@ -375,14 +375,17 @@ class TopicModeler:
             topic_info = self.model.get_topic_info()
             for _, row in topic_info.iterrows():
                 tid = row["Topic"]
-                if tid == -1:
+                if tid == -1:  # ruido/outliers de BERTopic — ignorar
                     continue
                 words_scores = self.model.get_topic(tid)
                 if words_scores:
-                    words = [w for w, _ in words_scores[:10]]
+                    # Filtrar palabras vacías o muy cortas
+                    words = [w for w, _ in words_scores[:10] if len(w) > 2]
+                    if not words:
+                        continue
                     self.topic_labels[tid] = {
                         "words": words,
-                        "label": f"Tópico {tid}: {', '.join(words[:3])}",
+                        "label": f"Tópico {tid + 1}: {', '.join(words[:3])}",
                     }
         except Exception as e:
             logger.error(f"Error extrayendo labels BERTopic: {e}")

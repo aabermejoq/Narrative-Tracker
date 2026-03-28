@@ -347,9 +347,9 @@ def _periodo_delta(
 
 
 def _badge(pct: float | None, invertir: bool = False) -> tuple:
-    """Devuelve (texto_badge, css_class) para una tarjeta KPI."""
+    """Devuelve (texto_badge, css_class). Retorna ('', 'delta-neu') si no hay datos de ambos meses."""
     if pct is None:
-        return "sin datos prev.", "delta-neu"
+        return "", "delta-neu"
     positivo = pct > 0
     if invertir:
         css = "delta-neg" if positivo else "delta-pos"
@@ -646,7 +646,11 @@ def render_narratives(data: dict):
         selected_topic_idx = st.selectbox(
             "Nube de palabras — selecciona tópico",
             options=[t[0] for t in topics_list],
-            format_func=lambda x: f"Tópico {x + 1}: {', '.join(topic_labels[x]['words'][:3])}",
+            format_func=lambda x: (
+                f"Tópico {x + 1}: {', '.join(topic_labels[x]['words'][:3])}"
+                if x in topic_labels and topic_labels[x].get("words")
+                else f"Tópico {x + 1}"
+            ),
         )
         if selected_topic_idx in topic_labels:
             words = topic_labels[selected_topic_idx]["words"]
@@ -657,21 +661,25 @@ def render_narratives(data: dict):
             )
 
     if "topic" in combined.columns:
-        topic_counts = combined["topic"].value_counts().reset_index()
-        topic_counts.columns = ["topic_id", "count"]
-        topic_counts["label"] = topic_counts["topic_id"].apply(
-            lambda x: f"T{x+1}: {', '.join(topic_labels.get(x, {}).get('words', ['?'])[:2])}"
-        )
-        fig = px.bar(
-            topic_counts.head(10), x="label", y="count",
-            title="Volumen de menciones por narrativa",
-            color="count",
-            color_continuous_scale="Blues",
-            labels={"label": "Narrativa", "count": "Menciones"},
-        )
-        fig.update_coloraxes(showscale=False)
-        _theme(fig, height=290)
-        st.plotly_chart(fig, use_container_width=True)
+        valid_ids = set(topic_labels.keys())
+        filtered = combined[combined["topic"].isin(valid_ids)]
+        if not filtered.empty:
+            topic_counts = filtered["topic"].value_counts().reset_index()
+            topic_counts.columns = ["topic_id", "count"]
+            topic_counts["label"] = topic_counts["topic_id"].apply(
+                lambda x: f"T{x+1}: {', '.join(topic_labels[x]['words'][:2])}"
+                if x in topic_labels and topic_labels[x].get("words") else f"Tópico {x+1}"
+            )
+            fig = px.bar(
+                topic_counts.head(10), x="label", y="count",
+                title="Volumen de menciones por narrativa",
+                color="count",
+                color_continuous_scale="Blues",
+                labels={"label": "Narrativa", "count": "Menciones"},
+            )
+            fig.update_coloraxes(showscale=False)
+            _theme(fig, height=290)
+            st.plotly_chart(fig, use_container_width=True)
 
     if "x_2d" in combined.columns and "y_2d" in combined.columns:
         sample = combined.sample(min(500, len(combined)), random_state=42)
@@ -956,7 +964,11 @@ def render_instagram(data: dict):
         ig_topics = ig_data["topic"].value_counts().reset_index()
         ig_topics.columns = ["topic_id", "count"]
         ig_topics["label"] = ig_topics["topic_id"].apply(
-            lambda x: f"T{x+1}: {', '.join(topic_labels.get(x, {}).get('words', ['?'])[:2])}"
+            lambda x: (
+                f"T{x+1}: {', '.join(topic_labels[x]['words'][:2])}"
+                if x in topic_labels and topic_labels[x].get("words")
+                else f"Tópico {x+1}"
+            )
         )
         fig3 = px.bar(
             ig_topics.head(8), x="label", y="count",

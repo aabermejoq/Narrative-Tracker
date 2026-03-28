@@ -44,8 +44,10 @@ NEWS_API_KEY    = _get_secret("NEWS_API_KEY",    "TU_NEWS_API_KEY_AQUI")
 POLITICIAN_NAME = "Gino Segura"
 POLITICIAN_QUERY_VARIANTS = [
     "Gino Segura",
+    "Eugenio Segura",
     "Gino Segura Quintana Roo",
-    "Gino Segura político",
+    "Eugenio Segura Quintana Roo",
+    "senador Quintana Roo",
 ]
 
 COMPARISON_POLITICIANS = ["Mara Lezama", "Claudia Sheinbaum"]
