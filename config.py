@@ -44,8 +44,10 @@ NEWS_API_KEY    = _get_secret("NEWS_API_KEY",    "TU_NEWS_API_KEY_AQUI")
 POLITICIAN_NAME = "Gino Segura"
 POLITICIAN_QUERY_VARIANTS = [
     "Gino Segura",
+    "Eugenio Segura",
     "Gino Segura Quintana Roo",
-    "Gino Segura político",
+    "Eugenio Segura Quintana Roo",
+    "senador Quintana Roo",
 ]
 
 COMPARISON_POLITICIANS = ["Mara Lezama", "Claudia Sheinbaum"]
@@ -77,3 +79,52 @@ EXCEL_DATA = BASE_DIR / "data gino.xlsx"
 
 # Cache TTL en horas
 CACHE_TTL_HOURS = 6
+
+# Horas máximas antes de re-correr el pipeline completo (fast CSV path)
+PROCESSED_TTL_HOURS = 24
+
+# ─────────────────────────────────────────────
+#  RSS FEEDS — Medios mexicanos (político/local)
+# ─────────────────────────────────────────────
+RSS_FEEDS = [
+    # ── Quintana Roo / Caribe ──────────────────────────────
+    "https://www.poresto.net/feed/",
+    "https://sipse.com/feed/",
+    "https://www.novedadesqroo.com.mx/feed/",
+    "https://quintanaroohoy.com/feed/",
+    "https://cancun.corriente.news/feed/",
+    "https://www.noticaribe.com.mx/feed/",
+    "https://caribenuestro.mx/feed/",
+    "https://laverdadnoticias.com/feed/",
+    "https://www.cancunmio.com/feed/",
+    "https://eju.tv/feed/",
+    # ── Nacional ──────────────────────────────────────────
+    "https://www.eluniversal.com.mx/arc/outboundfeeds/rss/",
+    "https://www.jornada.com.mx/rss/index.xml",
+    "https://proceso.com.mx/feed/",
+    "https://www.milenio.com/rss",
+    "https://www.excelsior.com.mx/rss/nacional",
+    "https://aristeguinoticias.com/feed/",
+    "https://www.sinembargo.mx/feed",
+    "https://politico.mx/feed/",
+    "https://www.radioformula.com.mx/rss.xml",
+    "https://www.infobae.com/mexico/rss/",
+    "https://mexico.quadratin.com.mx/feed/",
+    "https://www.reporteindigo.com/feed/",
+    "https://lopezdoriga.com/feed/",
+    "https://www.sdpnoticias.com/rss.xml",
+    "https://www.animal-politico.com/feed/",
+    "https://expansion.mx/rss",
+    "https://www.eleconomista.com.mx/rss/rss.xml",
+    "https://www.cronica.com.mx/rss.xml",
+    "https://www.24-horas.mx/feed/",
+    "https://heraldodemexico.com.mx/feed/",
+    "https://www.elsoldemexico.com.mx/rss.xml",
+    "https://www.debate.com.mx/rss.xml",
+    "https://www.zocalo.com.mx/rss.xml",
+    "https://www.am.com.mx/rss.xml",
+    "https://politicaparatodos.mx/feed/",
+    "https://www.elmanana.com.mx/rss.xml",
+    "https://cnnespanol.cnn.com/mexico/feed/",
+    "https://noticieros.televisa.com/feed/",
+]

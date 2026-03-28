@@ -375,14 +375,17 @@ class TopicModeler:
             topic_info = self.model.get_topic_info()
             for _, row in topic_info.iterrows():
                 tid = row["Topic"]
-                if tid == -1:
+                if tid == -1:  # ruido/outliers de BERTopic — ignorar
                     continue
                 words_scores = self.model.get_topic(tid)
                 if words_scores:
-                    words = [w for w, _ in words_scores[:10]]
+                    # Filtrar palabras vacías o muy cortas
+                    words = [w for w, _ in words_scores[:10] if len(w) > 2]
+                    if not words:
+                        continue
                     self.topic_labels[tid] = {
                         "words": words,
-                        "label": f"Tópico {tid}: {', '.join(words[:3])}",
+                        "label": f"Tópico {tid + 1}: {', '.join(words[:3])}",
                     }
         except Exception as e:
             logger.error(f"Error extrayendo labels BERTopic: {e}")
@@ -567,11 +570,20 @@ def run_pipeline(data: dict) -> dict:
         POLITICIAN_NAME,
     )
 
-    # Guardar resultados
+    # Guardar resultados (CSV persistidos en el repositorio)
     if not combined.empty:
         combined.to_csv(DATA_PROCESSED / "combined_analysis.csv", index=False)
     if not results["popularity_index"].empty:
         results["popularity_index"].to_csv(DATA_PROCESSED / "popularity_index.csv", index=False)
+    if not results.get("news_sentiment", pd.DataFrame()).empty:
+        results["news_sentiment"].to_csv(DATA_PROCESSED / "news_sentiment.csv", index=False)
+
+    # Guardar topic_labels como JSON para carga rápida
+    if results.get("topic_labels"):
+        import json
+        serializable = {str(k): v for k, v in results["topic_labels"].items()}
+        with open(DATA_PROCESSED / "topic_labels.json", "w", encoding="utf-8") as fj:
+            json.dump(serializable, fj, ensure_ascii=False)
 
     logger.info("=== Pipeline NLP completado ===")
     return results
